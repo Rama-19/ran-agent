@@ -360,7 +360,7 @@ def update_user_config(req: UserProviderConfigRequest, current_user: dict = Depe
     cfg = load_user_config(current_user["id"])
     updates: dict = {"name": req.name}
     if req.api_key:
-        updates["api_key"] = req.api_key
+        updates["api_key"] = req.api_key.strip()
     if req.base_url is not None:
         updates["base_url"] = req.base_url
     if req.model:

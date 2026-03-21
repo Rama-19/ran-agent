@@ -98,8 +98,10 @@ python send_email_qq.py \
   --auth_code "YOUR_QQ_SMTP_AUTH_CODE" \
   --to "to1@example.com,to2@example.com" \
   --subject "测试邮件" \
-  --body "这是一封通过 QQ SMTP(SSL 465) 发送的测试邮件。"
+  --body "这是第一段正文。" "这是第二段正文。" "这是第三段正文。"
 ```
+
+> `--body` 支持多个参数，每个参数为一行，最终以换行符拼接为完整正文。
 
 ### 6.2 带抄送与多个附件
 

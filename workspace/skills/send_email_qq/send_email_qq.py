@@ -264,7 +264,7 @@ def main() -> None:
         help="抄送邮箱：可重复指定或逗号分隔，如 --cc c@x.com --cc d@y.com",
     )
     parser.add_argument("--subject", required=True, help="邮件主题")
-    parser.add_argument("--body", required=True, help="邮件正文（纯文本）")
+    parser.add_argument("--body", required=True, nargs='+', help="邮件正文（纯文本），支持多段，用空格分隔或加引号，最终以换行拼接")
     parser.add_argument(
         "--attachment",
         action="append",
@@ -288,6 +288,8 @@ def main() -> None:
     if (not code) and (not args.dry_run):
         raise SystemExit(f"缺少授权码：请提供 --auth_code 或设置环境变量 {ENV_AUTH_CODE}")
 
+    body = "\n".join(args.body) if isinstance(args.body, list) else args.body
+
     to_list = normalize_emails(args.to)
     cc_list = normalize_emails(args.cc)
     if not to_list:
@@ -303,7 +305,7 @@ def main() -> None:
         to=to_list,
         cc=cc_list,
         subject=args.subject,
-        body=args.body,
+        body=body,
         attachments=attachments,
     )
 
@@ -313,7 +315,7 @@ def main() -> None:
             to_list=to_list,
             cc_list=cc_list,
             subject=args.subject,
-            body=args.body,
+            body=body,
             attachments=attachments,
             smtp_host=args.smtp_host,
             smtp_port=args.smtp_port,
@@ -334,6 +336,7 @@ def main() -> None:
         )
     except RuntimeError as e:
         raise SystemExit(str(e))
+
 
     print("[send_email_qq] 邮件发送成功")
 

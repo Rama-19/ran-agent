@@ -1,0 +1,27 @@
+data/
+*.log
+.env
+openclaw.json
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# Workspace generated content
+workspace/generated/
+workspace/writenote/notes
+
+# IDE / OS
+.claude/
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db

@@ -17,7 +17,7 @@ web/dist/
 
 # Workspace generated content
 workspace/generated/
-workspace/writenote/notes
+workspace/skills/writenote/notes/
 
 # IDE / OS
 .claude/

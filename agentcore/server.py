@@ -10,7 +10,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Set
 
-from fastapi import Depends, FastAPI, HTTPException
+import mimetypes
+import shutil
+
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -590,3 +593,34 @@ def current_model(_u: dict = Depends(get_current_user)):
         return {"provider": cfg["name"], "model": cfg["model"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...), _u: dict = Depends(get_current_user)):
+    from .config import DATA_DIR
+    MAX_SIZE = 20 * 1024 * 1024  # 20 MB
+    upload_dir = DATA_DIR / "users" / _u["id"] / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Sanitize filename
+    from pathlib import Path as _Path
+    safe_name = _Path(file.filename or "upload").name or "upload"
+    dest = upload_dir / safe_name
+    # Avoid overwriting
+    stem, suffix = dest.stem, dest.suffix
+    i = 1
+    while dest.exists():
+        dest = upload_dir / f"{stem}_{i}{suffix}"
+        i += 1
+
+    size = 0
+    with open(dest, "wb") as f:
+        while chunk := await file.read(65536):
+            size += len(chunk)
+            if size > MAX_SIZE:
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="文件超过 20MB 限制")
+            f.write(chunk)
+
+    mime = mimetypes.guess_type(str(dest))[0] or "application/octet-stream"
+    return {"name": dest.name, "path": str(dest), "size": size, "type": mime}

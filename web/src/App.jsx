@@ -81,7 +81,10 @@ export default function App() {
   const [skillsLoading, setSkillsLoading] = useState(true)
   const [memory, setMemory] = useState({})
   const [showSettings, setShowSettings] = useState(false)
+  const [attachments, setAttachments] = useState([])   // [{name, path, size, type, preview?}]
+  const [uploading, setUploading] = useState(false)
   const bottomRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   // ── 主题 ───────────────────────────────────────────────────────────────────
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
@@ -279,7 +282,7 @@ export default function App() {
   // ── 发送 ──────────────────────────────────────────────────────────────────
   const send = useCallback(async () => {
     const task = input.trim()
-    if (!task || loading) return
+    if ((!task && attachments.length === 0) || loading) return
 
     // 若没有当前会话，自动新建一个
     let convId = currentConvIdRef.current
@@ -290,15 +293,21 @@ export default function App() {
       setConversations(prev => [conv, ...prev])
     }
 
+    const fileNote = attachments.length > 0
+      ? '\n\n[已上传文件]\n' + attachments.map(a => `- ${a.name}（路径: ${a.path}）`).join('\n')
+      : ''
+    const fullTask = (task + fileNote).trim()
+
     setInput('')
+    setAttachments(prev => { prev.forEach(a => { if (a.preview) URL.revokeObjectURL(a.preview) }); return [] })
     setLoading(true)
-    const userLocalId = push('user', task)
-    saveMsg('user', task, userLocalId)
+    const userLocalId = push('user', fullTask)
+    saveMsg('user', fullTask, userLocalId)
 
     try {
       if (mode === 'auto') {
         push('info', '正在生成计划并执行…')
-        const res = await api.auto(task, options, convId)
+        const res = await api.auto(fullTask, options, convId)
         const lastResult = res.results[res.results.length - 1]
         if (lastResult) {
           const agentLocalId = push('agent', lastResult.message)
@@ -310,7 +319,7 @@ export default function App() {
 
       } else if (mode === 'plan') {
         push('info', '正在生成候选计划…')
-        const planList = await api.createPlan(task, options)
+        const planList = await api.createPlan(fullTask, options)
         const msg = `已生成 ${planList.length} 个计划，可在「计划」标签查看并执行。`
         const agentLocalId = push('agent', msg)
         saveMsg('agent', msg, agentLocalId)
@@ -319,7 +328,7 @@ export default function App() {
 
       } else if (mode === 'ask') {
         push('info', '正在直接执行…')
-        const res = await api.ask(task, options, convId)
+        const res = await api.ask(fullTask, options, convId)
         const agentLocalId = push('agent', res.result)
         saveMsg('agent', res.result, agentLocalId)
       }
@@ -328,7 +337,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, mode, options, refresh, saveMsg])
+  }, [input, attachments, loading, mode, options, refresh, saveMsg])
 
   // ── 执行指定计划 ──────────────────────────────────────────────────────────
   const runPlan = useCallback(async (planId) => {
@@ -400,6 +409,37 @@ export default function App() {
   // ── 复制消息 ──────────────────────────────────────────────────────────────
   const handleCopy = useCallback((text) => {
     navigator.clipboard.writeText(text).catch(() => {})
+  }, [])
+
+  // ── 上传文件 ──────────────────────────────────────────────────────────────
+  const handleFileChange = useCallback(async (e) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    e.target.value = ''
+    setUploading(true)
+    try {
+      const results = await Promise.all(files.map(f => api.uploadFile(f)))
+      setAttachments(prev => [
+        ...prev,
+        ...results.map((r, i) => ({
+          ...r,
+          preview: files[i].type.startsWith('image/') ? URL.createObjectURL(files[i]) : null,
+        })),
+      ])
+    } catch (e) {
+      push('error', `上传失败: ${e.message}`)
+    } finally {
+      setUploading(false)
+    }
+  }, [])
+
+  const removeAttachment = useCallback((idx) => {
+    setAttachments(prev => {
+      const next = [...prev]
+      if (next[idx]?.preview) URL.revokeObjectURL(next[idx].preview)
+      next.splice(idx, 1)
+      return next
+    })
   }, [])
 
   // ── 键盘 ──────────────────────────────────────────────────────────────────
@@ -586,8 +626,39 @@ export default function App() {
               </div>
             </div>
 
+            {/* Attachment chips */}
+            {attachments.length > 0 && (
+              <div style={styles.attachRow}>
+                {attachments.map((att, i) => (
+                  <div key={i} style={styles.attachChip}>
+                    {att.preview
+                      ? <img src={att.preview} style={styles.attThumb} alt={att.name} />
+                      : <span style={styles.attIcon}>📄</span>
+                    }
+                    <span style={styles.attName} title={att.name}>{att.name}</span>
+                    <button style={styles.attRemove} onClick={() => removeAttachment(i)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Text input */}
             <div style={styles.textRow}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleFileChange}
+              />
+              <button
+                style={{ ...styles.uploadBtn, opacity: uploading ? 0.5 : 1 }}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || loading}
+                title="上传文件或图片"
+              >
+                {uploading ? <span style={styles.spinner}>◌</span> : '⊕'}
+              </button>
               <textarea
                 style={styles.textarea}
                 value={input}
@@ -602,9 +673,9 @@ export default function App() {
                 disabled={loading}
               />
               <button
-                style={{ ...styles.sendBtn, opacity: loading || !input.trim() ? 0.5 : 1 }}
+                style={{ ...styles.sendBtn, opacity: loading || (!input.trim() && attachments.length === 0) ? 0.5 : 1 }}
                 onClick={send}
-                disabled={loading || !input.trim()}
+                disabled={loading || (!input.trim() && attachments.length === 0)}
               >
                 {loading ? (
                   <span style={styles.spinner}>◌</span>
@@ -822,24 +893,27 @@ const styles = {
   },
   msgActions: {
     position: 'absolute',
-    top: 4,
+    top: 6,
     display: 'flex',
-    gap: 2,
+    gap: 4,
     background: 'var(--surface)',
     border: '1px solid var(--border)',
-    borderRadius: 5,
-    padding: '1px 3px',
+    borderRadius: 7,
+    padding: '3px 5px',
     zIndex: 10,
+    boxShadow: '0 2px 8px rgba(0,0,0,.2)',
   },
   actionBtn: {
     background: 'transparent',
     border: 'none',
     color: 'var(--text-dim)',
     cursor: 'pointer',
-    fontSize: 12,
-    padding: '1px 4px',
-    borderRadius: 3,
+    fontSize: 15,
+    padding: '2px 7px',
+    borderRadius: 4,
     lineHeight: 1.4,
+    display: 'flex',
+    alignItems: 'center',
   },
   modeBtn: {
     background: 'var(--surface2)',
@@ -855,6 +929,61 @@ const styles = {
     background: 'var(--accent-dim)',
     border: '1px solid var(--accent)',
     color: 'var(--text)',
+  },
+  attachRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
+    padding: '2px 0',
+  },
+  attachChip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    background: 'var(--surface2)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    padding: '3px 7px',
+    fontSize: 12,
+    maxWidth: 180,
+  },
+  attThumb: {
+    width: 28,
+    height: 28,
+    objectFit: 'cover',
+    borderRadius: 3,
+    flexShrink: 0,
+  },
+  attIcon: { fontSize: 16, flexShrink: 0 },
+  attName: {
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    color: 'var(--text)',
+  },
+  attRemove: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-dim)',
+    cursor: 'pointer',
+    fontSize: 11,
+    padding: '0 2px',
+    flexShrink: 0,
+  },
+  uploadBtn: {
+    background: 'var(--surface2)',
+    border: '1px solid var(--border)',
+    color: 'var(--text-dim)',
+    borderRadius: 6,
+    width: 36,
+    height: 40,
+    fontSize: 20,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   textRow: {
     display: 'flex',

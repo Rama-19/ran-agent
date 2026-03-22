@@ -91,6 +91,22 @@ const api = {
 
   // Model info
   getCurrentModel: () => request('GET', '/current-model'),
+
+  // File upload (multipart)
+  uploadFile: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const token = localStorage.getItem('auth_token')
+    return fetch(BASE + '/upload', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    }).then(async res => {
+      if (res.status === 401) { localStorage.removeItem('auth_token'); window.location.reload() }
+      if (!res.ok) { const e = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(e.detail || res.statusText) }
+      return res.json()
+    })
+  },
 }
 
 export default api

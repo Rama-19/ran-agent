@@ -21,20 +21,27 @@ const DEFAULT_OPTIONS = {
 }
 
 // ─── 消息类型 ─────────────────────────────────────────────────────────────────
-function Message({ msg }) {
+function Message({ msg, onDelete, onCopy }) {
+  const [hovered, setHovered] = useState(false)
   const isUser = msg.role === 'user'
   const isError = msg.role === 'error'
   const isInfo = msg.role === 'info'
+  const canAct = isUser || msg.role === 'agent' || msg.role === 'assistant'
 
   return (
-    <div style={{
-      ...styles.msg,
-      alignSelf: isUser ? 'flex-end' : 'flex-start',
-      background: isUser ? 'var(--accent-dim)' : isError ? 'var(--error-bg)' : 'var(--surface2)',
-      borderColor: isUser ? 'var(--accent)' : isError ? 'var(--red)' : 'var(--border)',
-      color: isError ? 'var(--red)' : isInfo ? 'var(--text-dim)' : 'var(--text)',
-      maxWidth: isUser ? '70%' : '100%',
-    }}>
+    <div
+      style={{
+        ...styles.msg,
+        alignSelf: isUser ? 'flex-end' : 'flex-start',
+        background: isUser ? 'var(--accent-dim)' : isError ? 'var(--error-bg)' : 'var(--surface2)',
+        borderColor: isUser ? 'var(--accent)' : isError ? 'var(--red)' : 'var(--border)',
+        color: isError ? 'var(--red)' : isInfo ? 'var(--text-dim)' : 'var(--text)',
+        maxWidth: isUser ? '70%' : '100%',
+        position: 'relative',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {!isUser && (
         <div style={styles.msgRole}>
           {isError ? '⚠ 错误' : isInfo ? 'ℹ 提示' : '🤖 Agent'}
@@ -45,6 +52,15 @@ function Message({ msg }) {
       ) : (
         <div className="mdText" style={styles.mdText}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+        </div>
+      )}
+      {hovered && canAct && (
+        <div style={{
+          ...styles.msgActions,
+          ...(isUser ? { left: 4, right: 'auto' } : { right: 4, left: 'auto' }),
+        }}>
+          <button style={styles.actionBtn} onClick={() => onCopy(msg.text)} title="复制">⎘</button>
+          <button style={styles.actionBtn} onClick={() => onDelete(msg.id)} title="删除">✕</button>
         </div>
       )}
     </div>
@@ -82,6 +98,9 @@ export default function App() {
   // ── 认证状态 ───────────────────────────────────────────────────────────────
   const [user, setUser] = useState(null)           // null = 未登录
   const [authChecked, setAuthChecked] = useState(false)  // 防闪烁
+
+  // ── 模型信息 ───────────────────────────────────────────────────────────────
+  const [providerInfo, setProviderInfo] = useState(null)
 
   // ── 会话管理 ───────────────────────────────────────────────────────────────
   const [conversations, setConversations] = useState([])
@@ -197,11 +216,30 @@ export default function App() {
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, title } : c))
   }, [])
 
-  // ── 向当前会话追加消息（后台静默） ─────────────────────────────────────────
-  const saveMsg = useCallback((role, text) => {
+  // ── 加载当前模型信息 ────────────────────────────────────────────────────────
+  const loadProviderInfo = useCallback(async () => {
+    try {
+      const info = await api.getCurrentModel()
+      setProviderInfo(info)
+    } catch { /* ignore */ }
+  }, [])
+
+  // ── 切换 Provider ────────────────────────────────────────────────────────────
+  const switchProvider = useCallback(async (name) => {
+    try {
+      await api.updateUserConfig({ name })
+      await loadProviderInfo()
+    } catch { /* ignore */ }
+  }, [loadProviderInfo])
+
+  // ── 向当前会话追加消息（后台静默），localId 用于回填服务端 id ──────────────
+  const saveMsg = useCallback((role, text, localId) => {
     const id = currentConvIdRef.current
     if (!id) return
-    api.appendMessage(id, role, text).then(() => {
+    api.appendMessage(id, role, text).then(res => {
+      if (res.id && localId) {
+        setMessages(prev => prev.map(m => m.id === localId ? { ...m, id: res.id } : m))
+      }
       setConversations(prev => prev.map(c =>
         c.id === id
           ? {
@@ -220,19 +258,23 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     refresh()
+    loadProviderInfo()
     loadConversations().then(convs => {
       if (convs.length > 0) selectConversation(convs[0].id)
     })
-  }, [user, refresh, loadConversations, selectConversation])
+  }, [user, refresh, loadProviderInfo, loadConversations, selectConversation])
 
   // ── 滚动到底部 ─────────────────────────────────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── 推送消息（仅更新 UI） ───────────────────────────────────────────────────
-  const push = (role, text) =>
-    setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role, text }])
+  // ── 推送消息（仅更新 UI），返回本地 id 供后续回填 ──────────────────────────
+  const push = (role, text) => {
+    const localId = `local_${Date.now()}_${Math.random()}`
+    setMessages((prev) => [...prev, { id: localId, role, text }])
+    return localId
+  }
 
   // ── 发送 ──────────────────────────────────────────────────────────────────
   const send = useCallback(async () => {
@@ -250,8 +292,8 @@ export default function App() {
 
     setInput('')
     setLoading(true)
-    push('user', task)
-    saveMsg('user', task)
+    const userLocalId = push('user', task)
+    saveMsg('user', task, userLocalId)
 
     try {
       if (mode === 'auto') {
@@ -259,8 +301,8 @@ export default function App() {
         const res = await api.auto(task, options, convId)
         const lastResult = res.results[res.results.length - 1]
         if (lastResult) {
-          push('agent', lastResult.message)
-          saveMsg('agent', lastResult.message)
+          const agentLocalId = push('agent', lastResult.message)
+          saveMsg('agent', lastResult.message, agentLocalId)
           if (lastResult.need_input) setPending(lastResult.need_input)
         }
         await refresh()
@@ -270,16 +312,16 @@ export default function App() {
         push('info', '正在生成候选计划…')
         const planList = await api.createPlan(task, options)
         const msg = `已生成 ${planList.length} 个计划，可在「计划」标签查看并执行。`
-        push('agent', msg)
-        saveMsg('agent', msg)
+        const agentLocalId = push('agent', msg)
+        saveMsg('agent', msg, agentLocalId)
         await refresh()
         setTab('plans')
 
       } else if (mode === 'ask') {
         push('info', '正在直接执行…')
         const res = await api.ask(task, options, convId)
-        push('agent', res.result)
-        saveMsg('agent', res.result)
+        const agentLocalId = push('agent', res.result)
+        saveMsg('agent', res.result, agentLocalId)
       }
     } catch (e) {
       push('error', e.message)
@@ -307,12 +349,12 @@ export default function App() {
   // ── 回复 blocked ──────────────────────────────────────────────────────────
   const handleReply = useCallback(async (reply) => {
     setLoading(true)
-    push('user', `/reply ${reply}`)
-    saveMsg('user', `/reply ${reply}`)
+    const userLocalId = push('user', `/reply ${reply}`)
+    saveMsg('user', `/reply ${reply}`, userLocalId)
     try {
       const res = await api.reply(reply)
-      push('agent', res.message)
-      saveMsg('agent', res.message)
+      const agentLocalId = push('agent', res.message)
+      saveMsg('agent', res.message, agentLocalId)
       if (res.need_input) setPending(res.need_input)
       else setPending(null)
       await refresh()
@@ -337,6 +379,28 @@ export default function App() {
       setLoading(false)
     }
   }, [refresh])
+
+  // ── 删除消息 ──────────────────────────────────────────────────────────────
+  const handleDeleteMessage = useCallback(async (msgId) => {
+    const convId = currentConvIdRef.current
+    if (!convId) return
+    try {
+      const res = await api.deleteMessage(convId, msgId)
+      const deletedIds = new Set(res.deleted)
+      setMessages(prev => prev.filter(m => !deletedIds.has(m.id)))
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, message_count: Math.max(0, c.message_count - deletedIds.size) } : c
+      ))
+    } catch {
+      // 本地消息（尚未保存到服务端）直接从 UI 移除
+      setMessages(prev => prev.filter(m => m.id !== msgId))
+    }
+  }, [])
+
+  // ── 复制消息 ──────────────────────────────────────────────────────────────
+  const handleCopy = useCallback((text) => {
+    navigator.clipboard.writeText(text).catch(() => {})
+  }, [])
 
   // ── 键盘 ──────────────────────────────────────────────────────────────────
   const onKey = (e) => {
@@ -366,6 +430,11 @@ export default function App() {
       <header style={styles.header}>
         <span style={styles.logo}>✦ Ran Agent</span>
         <span style={styles.headerDim}></span>
+        {providerInfo && (
+          <span style={styles.modelPill} title="当前模型，点击设置更换" onClick={() => setShowSettings(true)}>
+            {providerInfo.provider} · {providerInfo.model}
+          </span>
+        )}
         {pending && (
           <span style={styles.pendingPill}>⊘ 等待补充</span>
         )}
@@ -437,7 +506,9 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  messages.map((m) => <Message key={m.id} msg={m} />)
+                  messages.map((m) => (
+                    <Message key={m.id} msg={m} onDelete={handleDeleteMessage} onCopy={handleCopy} />
+                  ))
                 )}
                 <div ref={bottomRef} />
               </div>
@@ -495,6 +566,21 @@ export default function App() {
                   {m.label}
                 </button>
               ))}
+              <div style={styles.providerRow}>
+                {['openai', 'anthropic'].map(p => (
+                  <button
+                    key={p}
+                    title={`切换到 ${p}`}
+                    style={{
+                      ...styles.modeBtn,
+                      ...(providerInfo?.provider === p ? styles.modeBtnActive : {}),
+                    }}
+                    onClick={() => switchProvider(p)}
+                  >
+                    {p === 'openai' ? 'OpenAI' : 'Anthropic'}
+                  </button>
+                ))}
+              </div>
               <div style={{ marginLeft: 'auto' }}>
                 <OptionsPanel options={options} onChange={setOptions} />
               </div>
@@ -560,6 +646,17 @@ const styles = {
   },
   logo: { fontWeight: 700, fontSize: 15, color: 'var(--accent)' },
   headerDim: { color: 'var(--text-dim)', fontSize: 12 },
+  modelPill: {
+    background: 'var(--surface2)',
+    color: 'var(--text-dim)',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    padding: '2px 10px',
+    fontSize: 11,
+    fontWeight: 500,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
   pendingPill: {
     marginLeft: 8,
     background: 'var(--pending-bg)',
@@ -715,6 +812,34 @@ const styles = {
     alignItems: 'center',
     gap: 4,
     flexWrap: 'wrap',
+  },
+  providerRow: {
+    display: 'flex',
+    gap: 4,
+    marginLeft: 8,
+    paddingLeft: 8,
+    borderLeft: '1px solid var(--border)',
+  },
+  msgActions: {
+    position: 'absolute',
+    top: 4,
+    display: 'flex',
+    gap: 2,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 5,
+    padding: '1px 3px',
+    zIndex: 10,
+  },
+  actionBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-dim)',
+    cursor: 'pointer',
+    fontSize: 12,
+    padding: '1px 4px',
+    borderRadius: 3,
+    lineHeight: 1.4,
   },
   modeBtn: {
     background: 'var(--surface2)',

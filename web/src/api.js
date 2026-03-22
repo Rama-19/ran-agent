@@ -86,7 +86,11 @@ const api = {
   getConversation: (id) => request('GET', `/conversations/${id}`),
   deleteConversation: (id) => request('DELETE', `/conversations/${id}`),
   appendMessage: (id, role, text) => request('POST', `/conversations/${id}/messages`, { role, text }),
+  deleteMessage: (convId, msgId) => request('DELETE', `/conversations/${convId}/messages/${encodeURIComponent(msgId)}`),
   renameConversation: (id, title) => request('PATCH', `/conversations/${id}`, { title }),
+
+  // Model info
+  getCurrentModel: () => request('GET', '/current-model'),
 }
 
 export default api

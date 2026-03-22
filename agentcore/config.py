@@ -146,15 +146,17 @@ def update_provider_config(updates: dict) -> None:
 
 
 def get_smtp_config() -> dict:
-    """读取最新 SMTP 配置（每次从磁盘加载，支持热更新）。"""
+    """读取最新 SMTP 配置（每次从磁盘加载，支持热更新）。
+    优先级：openclaw.json > 环境变量（QQ_EMAIL_SENDER / QQ_EMAIL_AUTH_CODE）。"""
     fresh = load_config()
-    return fresh.get("smtp", {
-        "host": "smtp.qq.com",
-        "port": 465,
-        "username": "",
-        "password": "",
-        "from_name": "Agent",
-    })
+    smtp = fresh.get("smtp", {})
+    return {
+        "host": smtp.get("host") or os.environ.get("SMTP_HOST", "smtp.qq.com"),
+        "port": int(smtp.get("port") or os.environ.get("SMTP_PORT", 465)),
+        "username": smtp.get("username") or os.environ.get("QQ_EMAIL_SENDER", ""),
+        "password": smtp.get("password") or os.environ.get("QQ_EMAIL_AUTH_CODE", ""),
+        "from_name": smtp.get("from_name") or os.environ.get("SMTP_FROM_NAME", "Agent"),
+    }
 
 
 def update_smtp_config(updates: dict) -> None:

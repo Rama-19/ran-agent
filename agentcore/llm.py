@@ -49,12 +49,15 @@ def _run_openai(
         input_msgs.append({"role": h["role"], "content": h["content"]})
     input_msgs.append({"role": "user", "content": user_input})
 
-    response = client.responses.create(
-        model=model,
-        input=input_msgs,
-        tools=tools or [],
-        reasoning={"effort": reasoning_effort} if reasoning_effort else None,
-    )
+    _create_kwargs: Dict[str, Any] = {
+        "model": model,
+        "input": input_msgs,
+        "tools": tools or [],
+    }
+    if reasoning_effort:
+        _create_kwargs["reasoning"] = {"effort": reasoning_effort}
+
+    response = client.responses.create(**_create_kwargs)
 
     for _ in range(max_rounds):
         function_calls = [
@@ -81,12 +84,16 @@ def _run_openai(
                 "output": result,
             })
 
-        response = client.responses.create(
-            model=model,
-            previous_response_id=response.id,
-            input=tool_outputs,
-            tools=tools or [],
-            reasoning={"effort": reasoning_effort} if reasoning_effort else None,
+        _continue_kwargs: Dict[str, Any] = {
+            "model": model,
+            "previous_response_id": response.id,
+            "input": tool_outputs,
+            "tools": tools or [],
+        }
+        if reasoning_effort:
+            _continue_kwargs["reasoning"] = {"effort": reasoning_effort}
+
+        response = client.responses.create(**_continue_kwargs
         )
 
     return "BLOCKED: 超过最大工具轮数"

@@ -561,9 +561,18 @@ def del_conversation(conv_id: str, _u: dict = Depends(get_current_user)):
 
 @app.post("/api/conversations/{conv_id}/messages")
 def add_message(conv_id: str, req: ConvAppendRequest, _u: dict = Depends(get_current_user)):
-    if not conv_store.append_message(conv_id, req.role, req.text, _u["id"]):
+    msg_id = conv_store.append_message(conv_id, req.role, req.text, _u["id"])
+    if msg_id is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-    return {"message": "已追加"}
+    return {"message": "已追加", "id": msg_id}
+
+
+@app.delete("/api/conversations/{conv_id}/messages/{msg_id}")
+def del_message(conv_id: str, msg_id: str, _u: dict = Depends(get_current_user)):
+    deleted = conv_store.delete_message(conv_id, msg_id, _u["id"])
+    if not deleted:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    return {"deleted": deleted}
 
 
 @app.patch("/api/conversations/{conv_id}")
@@ -571,3 +580,13 @@ def patch_conversation(conv_id: str, req: ConvRenameRequest, _u: dict = Depends(
     if not conv_store.rename_conversation(conv_id, req.title, _u["id"]):
         raise HTTPException(status_code=404, detail="会话不存在")
     return {"message": "已更新"}
+
+
+@app.get("/api/current-model")
+def current_model(_u: dict = Depends(get_current_user)):
+    set_current_user(_u["id"])
+    try:
+        cfg = get_provider_config()
+        return {"provider": cfg["name"], "model": cfg["model"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

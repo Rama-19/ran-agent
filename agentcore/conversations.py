@@ -82,13 +82,14 @@ def get_conversation(conv_id: str, user_id: Optional[str] = None) -> Optional[di
     return _load_conv(conv_id, user_id)
 
 
-def append_message(conv_id: str, role: str, text: str, user_id: Optional[str] = None) -> bool:
-    """追加一条消息；若首条用户消息则自动更新标题。"""
+def append_message(conv_id: str, role: str, text: str, user_id: Optional[str] = None) -> Optional[str]:
+    """追加一条消息；若首条用户消息则自动更新标题。返回新消息 id，失败返回 None。"""
     data = _load_conv(conv_id, user_id)
     if data is None:
-        return False
+        return None
+    msg_id = uuid.uuid4().hex[:8]
     data["messages"].append({
-        "id": uuid.uuid4().hex[:8],
+        "id": msg_id,
         "role": role,
         "text": text,
         "timestamp": datetime.now().isoformat(),
@@ -97,7 +98,28 @@ def append_message(conv_id: str, role: str, text: str, user_id: Optional[str] = 
     if role == "user" and data["title"] == "新会话":
         data["title"] = text[:30] + ("…" if len(text) > 30 else "")
     _save_conv(data, user_id)
-    return True
+    return msg_id
+
+
+def delete_message(conv_id: str, message_id: str, user_id: Optional[str] = None) -> list:
+    """删除指定消息及其配对消息（user↔agent）。返回被删除的 id 列表。"""
+    data = _load_conv(conv_id, user_id)
+    if data is None:
+        return []
+    messages = data["messages"]
+    idx = next((i for i, m in enumerate(messages) if m["id"] == message_id), -1)
+    if idx == -1:
+        return []
+    msg = messages[idx]
+    to_delete = {message_id}
+    if msg["role"] == "user" and idx + 1 < len(messages) and messages[idx + 1]["role"] in ("agent", "assistant"):
+        to_delete.add(messages[idx + 1]["id"])
+    elif msg["role"] in ("agent", "assistant") and idx > 0 and messages[idx - 1]["role"] == "user":
+        to_delete.add(messages[idx - 1]["id"])
+    data["messages"] = [m for m in messages if m["id"] not in to_delete]
+    data["updated_at"] = datetime.now().isoformat()
+    _save_conv(data, user_id)
+    return list(to_delete)
 
 
 def delete_conversation(conv_id: str, user_id: Optional[str] = None) -> bool:

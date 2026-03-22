@@ -355,6 +355,16 @@ export default function App() {
     }
   }, [refresh])
 
+  // ── 删除单个计划 ──────────────────────────────────────────────────────────
+  const deletePlan = useCallback(async (planId) => {
+    try {
+      await api.deletePlan(planId)
+      setPlans(prev => prev.filter(p => p.id !== planId))
+    } catch (e) {
+      push('error', e.message)
+    }
+  }, [])
+
   // ── 回复 blocked ──────────────────────────────────────────────────────────
   const handleReply = useCallback(async (reply) => {
     setLoading(true)
@@ -558,7 +568,7 @@ export default function App() {
                   <div style={styles.empty}>暂无计划，发送任务后自动生成</div>
                 ) : (
                   [...plans].reverse().map((p) => (
-                    <PlanCard key={p.id} plan={p} onRun={runPlan} />
+                    <PlanCard key={p.id} plan={p} onRun={runPlan} onDelete={deletePlan} />
                   ))
                 )}
               </div>

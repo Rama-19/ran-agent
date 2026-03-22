@@ -52,7 +52,7 @@ function StepRow({ step }) {
   )
 }
 
-export default function PlanCard({ plan, onRun }) {
+export default function PlanCard({ plan, onRun, onDelete }) {
   const statusColor = STATUS_COLOR[plan.status] || 'var(--text-dim)'
 
   return (
@@ -75,6 +75,11 @@ export default function PlanCard({ plan, onRun }) {
           {(plan.status === 'pending' || plan.status === 'failed') && onRun && (
             <button style={styles.runBtn} onClick={() => onRun(plan.id)}>
               ▶ 执行
+            </button>
+          )}
+          {onDelete && (
+            <button style={styles.deleteBtn} onClick={() => onDelete(plan.id)} title="删除计划">
+              ✕
             </button>
           )}
         </div>
@@ -131,6 +136,15 @@ const styles = {
     padding: '4px 12px',
     fontSize: 12,
     fontWeight: 600,
+    cursor: 'pointer',
+  },
+  deleteBtn: {
+    background: 'transparent',
+    color: 'var(--text-dim)',
+    border: '1px solid var(--border)',
+    borderRadius: 5,
+    padding: '4px 8px',
+    fontSize: 13,
     cursor: 'pointer',
   },
   steps: { padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 4 },

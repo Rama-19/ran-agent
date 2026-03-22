@@ -264,6 +264,24 @@ def create_skill(req: SkillCreateRequest, _u: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class SkillGenerateRequest(BaseModel):
+    name: str = ""
+    description: str = ""
+    bins: List[str] = []
+    env_vars: List[str] = []
+    always: bool = True
+
+
+@app.post("/api/skills/generate")
+def generate_skill_content(req: SkillGenerateRequest, _u: dict = Depends(get_current_user)):
+    set_current_user(_u["id"])
+    try:
+        content = sm.generate_skill_md(req.name, req.description, req.bins, req.env_vars, req.always)
+        return {"content": content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/skills/{name}")
 def get_skill(name: str, _u: dict = Depends(get_current_user)):
     detail = sm.get_skill_detail(name)
@@ -332,6 +350,17 @@ def get_plan(plan_id: str, _u: dict = Depends(get_current_user)):
     if not plan:
         raise HTTPException(status_code=404, detail=f"计划不存在: {plan_id}")
     return _plan_dict(plan)
+
+
+@app.delete("/api/plans/{plan_id}")
+def delete_plan(plan_id: str, _u: dict = Depends(get_current_user)):
+    store = _get_user_store(_u["id"])
+    ps = store["plan_store"]
+    if plan_id not in ps:
+        raise HTTPException(status_code=404, detail=f"计划不存在: {plan_id}")
+    del ps[plan_id]
+    save_user_sessions(_u["id"], ps)
+    return {"message": "已删除"}
 
 
 @app.delete("/api/plans")

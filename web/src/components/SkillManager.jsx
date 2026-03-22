@@ -66,6 +66,7 @@ function AddSkillModal({ onClose, onCreated }) {
   const [content, setContent] = useState('')
   const [tab, setTab] = useState('form')  // 'form' | 'preview'
   const [saving, setSaving] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
 
   const preview = buildTemplate(
@@ -75,6 +76,27 @@ function AddSkillModal({ onClose, onCreated }) {
     bins.split(',').map(s => s.trim()).filter(Boolean),
     envVars.split(',').map(s => s.trim()).filter(Boolean),
   )
+
+  const aiGenerate = async () => {
+    if (!description.trim() && !name.trim()) return setError('请至少填写 name 或 description')
+    setGenerating(true)
+    setError('')
+    try {
+      const res = await api.generateSkillContent({
+        name: name.trim() || 'my-skill',
+        description: description.trim(),
+        bins: bins.split(',').map(s => s.trim()).filter(Boolean),
+        env_vars: envVars.split(',').map(s => s.trim()).filter(Boolean),
+        always,
+      })
+      setContent(res.content)
+      setTab('preview')
+    } catch (e) {
+      setError(`AI 生成失败: ${e.message}`)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   const submit = async () => {
     if (!name.trim()) return setError('name 不能为空')
@@ -128,8 +150,17 @@ function AddSkillModal({ onClose, onCreated }) {
               Always enabled（无论环境条件）
             </label>
 
+            <button
+              style={{ ...ms.aiBtn, opacity: generating ? 0.6 : 1 }}
+              onClick={aiGenerate}
+              disabled={generating}
+              title="根据已填写的信息，用 AI 生成完整的 SKILL.md"
+            >
+              {generating ? '⏳ 生成中…' : '✨ AI 生成 SKILL.md'}
+            </button>
+
             <details style={ms.previewBox}>
-              <summary style={{ cursor: 'pointer', color: 'var(--text-dim)', fontSize: 12 }}>预览 SKILL.md</summary>
+              <summary style={{ cursor: 'pointer', color: 'var(--text-dim)', fontSize: 12 }}>预览模板</summary>
               <pre style={ms.pre}>{preview}</pre>
             </details>
           </div>
@@ -594,6 +625,11 @@ const ms = {
   input: {
     background: 'var(--surface2)', border: '1px solid var(--border)',
     color: 'var(--text)', borderRadius: 6, padding: '7px 10px', fontSize: 13, outline: 'none',
+  },
+  aiBtn: {
+    background: 'var(--surface2)', border: '1px solid var(--purple)',
+    color: 'var(--purple)', borderRadius: 6, padding: '8px 0',
+    fontSize: 13, fontWeight: 600, cursor: 'pointer',
   },
   previewBox: {
     background: 'var(--bg)', border: '1px solid var(--border)',

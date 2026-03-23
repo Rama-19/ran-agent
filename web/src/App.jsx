@@ -54,6 +54,16 @@ function Message({ msg, onDelete, onCopy }) {
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
         </div>
       )}
+      {msg.usage && (
+        <div style={styles.usageLine}>
+          ↑{msg.usage.input.toLocaleString()} ↓{msg.usage.output.toLocaleString()} tokens
+          {msg.usage.output > 0 && (
+            <span style={{ marginLeft: 8, color: 'var(--accent)', opacity: 0.8 }}>
+              ≈¥{((msg.usage.input * 2 + msg.usage.output * 8) / 1e6 * 7.3).toFixed(5)}
+            </span>
+          )}
+        </div>
+      )}
       {hovered && canAct && (
         <div style={{
           ...styles.msgActions,
@@ -273,9 +283,9 @@ export default function App() {
   }, [messages])
 
   // ── 推送消息（仅更新 UI），返回本地 id 供后续回填 ──────────────────────────
-  const push = (role, text) => {
+  const push = (role, text, extra = {}) => {
     const localId = `local_${Date.now()}_${Math.random()}`
-    setMessages((prev) => [...prev, { id: localId, role, text }])
+    setMessages((prev) => [...prev, { id: localId, role, text, ...extra }])
     return localId
   }
 
@@ -310,7 +320,7 @@ export default function App() {
         const res = await api.auto(fullTask, options, convId)
         const lastResult = res.results[res.results.length - 1]
         if (lastResult) {
-          const agentLocalId = push('agent', lastResult.message)
+          const agentLocalId = push('agent', lastResult.message, { usage: res.usage })
           saveMsg('agent', lastResult.message, agentLocalId)
           if (lastResult.need_input) setPending(lastResult.need_input)
         }
@@ -329,7 +339,7 @@ export default function App() {
       } else if (mode === 'ask') {
         push('info', '正在直接执行…')
         const res = await api.ask(fullTask, options, convId)
-        const agentLocalId = push('agent', res.result)
+        const agentLocalId = push('agent', res.result, { usage: res.usage })
         saveMsg('agent', res.result, agentLocalId)
       }
     } catch (e) {
@@ -900,6 +910,13 @@ const styles = {
     marginLeft: 8,
     paddingLeft: 8,
     borderLeft: '1px solid var(--border)',
+  },
+  usageLine: {
+    marginTop: 6,
+    fontSize: 11,
+    color: 'var(--text-dim)',
+    opacity: 0.7,
+    userSelect: 'none',
   },
   msgActions: {
     position: 'absolute',

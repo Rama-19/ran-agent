@@ -5,8 +5,34 @@
     from .llm import run_agent
     result = run_agent(system, user, tools, dispatch_fn, model, effort, max_rounds)
 """
+import contextvars
 import json
 from typing import Any, Callable, Dict, List, Optional
+
+# ── Token 用量追踪 ────────────────────────────────────────────────────────────
+
+_usage_ctx: contextvars.ContextVar[Dict[str, int]] = contextvars.ContextVar(
+    "token_usage", default=None
+)
+
+
+def reset_usage() -> None:
+    """在每次 agent 调用前重置计数器。"""
+    _usage_ctx.set({"input": 0, "output": 0})
+
+
+def get_usage() -> Dict[str, int]:
+    """返回当前累计用量，{input, output}。"""
+    return dict(_usage_ctx.get() or {"input": 0, "output": 0})
+
+
+def _add_usage(input_tokens: int, output_tokens: int) -> None:
+    cur = _usage_ctx.get()
+    if cur is None:
+        _usage_ctx.set({"input": input_tokens, "output": output_tokens})
+    else:
+        cur["input"] += input_tokens
+        cur["output"] += output_tokens
 
 
 def run_agent(
@@ -60,6 +86,12 @@ def _run_openai(
     response = client.responses.create(**_create_kwargs)
 
     for _ in range(max_rounds):
+        if getattr(response, "usage", None):
+            _add_usage(
+                getattr(response.usage, "input_tokens", 0),
+                getattr(response.usage, "output_tokens", 0),
+            )
+
         function_calls = [
             item for item in (getattr(response, "output", []) or [])
             if getattr(item, "type", None) == "function_call"
@@ -93,8 +125,7 @@ def _run_openai(
         if reasoning_effort:
             _continue_kwargs["reasoning"] = {"effort": reasoning_effort}
 
-        response = client.responses.create(**_continue_kwargs
-        )
+        response = client.responses.create(**_continue_kwargs)
 
     return "BLOCKED: 超过最大工具轮数"
 
@@ -146,6 +177,12 @@ def _run_anthropic(
             kwargs["tools"] = anthropic_tools
 
         response = client.messages.create(**kwargs)
+
+        if getattr(response, "usage", None):
+            _add_usage(
+                getattr(response.usage, "input_tokens", 0),
+                getattr(response.usage, "output_tokens", 0),
+            )
 
         tool_uses = [b for b in response.content if b.type == "tool_use"]
 

@@ -94,6 +94,9 @@ const api = {
   // Model info
   getCurrentModel: () => request('GET', '/current-model'),
 
+  // Usage stats
+  getUsage: () => request('GET', '/usage'),
+
   // File upload (multipart)
   uploadFile: (file) => {
     const formData = new FormData()

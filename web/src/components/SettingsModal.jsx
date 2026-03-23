@@ -26,6 +26,11 @@ export default function SettingsModal({ onClose }) {
   const [smtpSaving, setSmtpSaving] = useState(false)
   const [smtpMsg, setSmtpMsg] = useState('')
 
+  // Usage stats section
+  const [usageOpen, setUsageOpen] = useState(false)
+  const [usageData, setUsageData] = useState(null)
+  const [usageLoading, setUsageLoading] = useState(false)
+
   // Change password section
   const [pwdOpen, setPwdOpen] = useState(false)
   const [curPwd, setCurPwd] = useState('')
@@ -66,6 +71,25 @@ export default function SettingsModal({ onClose }) {
     if (!smtpOpen) loadSmtp()
     setSmtpOpen(v => !v)
     setSmtpMsg('')
+  }
+
+  const toggleUsage = async () => {
+    const opening = !usageOpen
+    setUsageOpen(opening)
+    if (opening && !usageData) {
+      setUsageLoading(true)
+      try {
+        const d = await api.getUsage()
+        setUsageData(d)
+      } catch { /* ignore */ }
+      finally { setUsageLoading(false) }
+    }
+  }
+
+  const refreshUsage = async () => {
+    setUsageLoading(true)
+    try { setUsageData(await api.getUsage()) } catch { /* ignore */ }
+    finally { setUsageLoading(false) }
   }
 
   const togglePwd = () => {
@@ -181,6 +205,21 @@ export default function SettingsModal({ onClose }) {
 
             <div style={styles.divider} />
 
+            {/* ── Token 用量 ── */}
+            <button style={styles.sectionToggle} onClick={toggleUsage}>
+              <span>📊 Token 用量与费用</span>
+              <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{usageOpen ? '▲ 收起' : '▼ 展开'}</span>
+            </button>
+            {usageOpen && (
+              <div style={styles.smtpBody}>
+                {usageLoading && <p style={styles.dim}>加载中…</p>}
+                {!usageLoading && usageData && <UsagePanel data={usageData} onRefresh={refreshUsage} />}
+                {!usageLoading && !usageData && <p style={styles.dim}>暂无记录</p>}
+              </div>
+            )}
+
+            <div style={styles.divider} />
+
             {/* ── 修改密码 ── */}
             <button style={styles.sectionToggle} onClick={togglePwd}>
               <span>🔑 修改密码</span>
@@ -238,6 +277,136 @@ export default function SettingsModal({ onClose }) {
       </div>
     </div>
   )
+}
+
+// ── 用量面板 ──────────────────────────────────────────────────────────────────
+
+function fmt(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  return String(n)
+}
+
+function fmtCny(n) {
+  if (n === 0) return '¥0.00'
+  if (n < 0.0001) return '<¥0.0001'
+  if (n < 0.01) return '¥' + n.toFixed(5)
+  return '¥' + n.toFixed(4)
+}
+
+function fmtTs(ts) {
+  try {
+    const d = new Date(ts)
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  } catch { return ts }
+}
+
+function UsagePanel({ data, onRefresh }) {
+  const { total, by_model, recent } = data
+  const [showRecent, setShowRecent] = useState(false)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* 汇总 */}
+      <div style={usageStyles.summary}>
+        <div style={usageStyles.card}>
+          <div style={usageStyles.cardVal}>{fmt(total.input + total.output)}</div>
+          <div style={usageStyles.cardLabel}>总 Tokens</div>
+        </div>
+        <div style={usageStyles.card}>
+          <div style={usageStyles.cardVal}>{fmtCny(total.cost_cny ?? total.cost_usd * 7.3)}</div>
+          <div style={usageStyles.cardLabel}>总费用 (CNY)</div>
+        </div>
+        <div style={usageStyles.card}>
+          <div style={usageStyles.cardVal}>{total.calls}</div>
+          <div style={usageStyles.cardLabel}>总调用次数</div>
+        </div>
+      </div>
+
+      {/* 按模型分组 */}
+      {by_model.length > 0 && (
+        <div>
+          <div style={usageStyles.tableHead}>
+            <span style={{ flex: 2 }}>模型</span>
+            <span style={{ flex: 1, textAlign: 'right' }}>输入</span>
+            <span style={{ flex: 1, textAlign: 'right' }}>输出</span>
+            <span style={{ flex: 1, textAlign: 'right' }}>费用(¥)</span>
+            <span style={{ flex: 1, textAlign: 'right' }}>次数</span>
+          </div>
+          {by_model.map((row, i) => (
+            <div key={i} style={usageStyles.tableRow}>
+              <span style={{ flex: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={`${row.provider}/${row.model}`}>
+                {row.model || row.provider}
+              </span>
+              <span style={{ flex: 1, textAlign: 'right', color: 'var(--text-dim)' }}>{fmt(row.input)}</span>
+              <span style={{ flex: 1, textAlign: 'right', color: 'var(--text-dim)' }}>{fmt(row.output)}</span>
+              <span style={{ flex: 1, textAlign: 'right', color: 'var(--accent)' }}>{fmtCny(row.cost_cny ?? row.cost_usd * 7.3)}</span>
+              <span style={{ flex: 1, textAlign: 'right', color: 'var(--text-dim)' }}>{row.calls}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 最近记录 */}
+      <button style={usageStyles.toggleRecent} onClick={() => setShowRecent(v => !v)}>
+        {showRecent ? '▲ 收起最近记录' : `▼ 最近 ${Math.min(recent.length, 20)} 条记录`}
+      </button>
+      {showRecent && recent.length > 0 && (
+        <div>
+          <div style={usageStyles.tableHead}>
+            <span style={{ flex: 2 }}>时间</span>
+            <span style={{ flex: 2 }}>模型</span>
+            <span style={{ flex: 1, textAlign: 'right' }}>↑输入</span>
+            <span style={{ flex: 1, textAlign: 'right' }}>↓输出</span>
+            <span style={{ flex: 1, textAlign: 'right' }}>费用(¥)</span>
+          </div>
+          {recent.map((r, i) => (
+            <div key={i} style={usageStyles.tableRow}>
+              <span style={{ flex: 2, color: 'var(--text-dim)' }}>{fmtTs(r.ts)}</span>
+              <span style={{ flex: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={`${r.provider}/${r.model}`}>{r.model || r.provider}</span>
+              <span style={{ flex: 1, textAlign: 'right', color: 'var(--text-dim)' }}>{fmt(r.input)}</span>
+              <span style={{ flex: 1, textAlign: 'right', color: 'var(--text-dim)' }}>{fmt(r.output)}</span>
+              <span style={{ flex: 1, textAlign: 'right', color: 'var(--accent)' }}>{fmtCny(r.cost_cny ?? r.cost_usd * 7.3)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button style={usageStyles.refreshBtn} onClick={onRefresh}>↺ 刷新</button>
+    </div>
+  )
+}
+
+const usageStyles = {
+  summary: { display: 'flex', gap: 8 },
+  card: {
+    flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)',
+    borderRadius: 8, padding: '10px 12px', textAlign: 'center',
+  },
+  cardVal: { fontSize: 18, fontWeight: 700, color: 'var(--accent)' },
+  cardLabel: { fontSize: 11, color: 'var(--text-dim)', marginTop: 2 },
+  tableHead: {
+    display: 'flex', gap: 4, padding: '4px 6px',
+    fontSize: 11, color: 'var(--text-dim)', fontWeight: 600,
+    borderBottom: '1px solid var(--border)',
+  },
+  tableRow: {
+    display: 'flex', gap: 4, padding: '5px 6px',
+    fontSize: 12, color: 'var(--text)',
+    borderBottom: '1px solid var(--border)',
+  },
+  toggleRecent: {
+    background: 'transparent', border: '1px solid var(--border)',
+    color: 'var(--text-dim)', borderRadius: 5, padding: '5px 10px',
+    fontSize: 12, cursor: 'pointer',
+  },
+  refreshBtn: {
+    alignSelf: 'flex-end', background: 'var(--surface2)',
+    border: '1px solid var(--border)', color: 'var(--text-dim)',
+    borderRadius: 5, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
+  },
 }
 
 const styles = {

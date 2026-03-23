@@ -12,6 +12,8 @@ from .tools import (
     build_responses_tools, get_response_tools,
 )
 from . import memory as mem
+from .memory import get_user_memory
+from .config import _current_user_id
 from .llm import run_agent
 
 
@@ -179,8 +181,12 @@ def run_responses_agent(
     effort = pick_reasoning_effort(opts)
     round_limit = max_rounds or get_agent_round_limit(opts, base=8)
 
-    # 注入记忆上下文
-    mem_ctx = mem.format_for_prompt()
+    # 注入记忆上下文（优先用用户记忆，否则回退到全局记忆）
+    user_id = _current_user_id.get()
+    if user_id:
+        mem_ctx = get_user_memory(user_id).format_for_prompt()
+    else:
+        mem_ctx = mem.format_for_prompt()
     if mem_ctx:
         system_prompt = f"{system_prompt}\n\n{mem_ctx}"
 

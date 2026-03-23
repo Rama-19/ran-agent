@@ -1,4 +1,6 @@
+import json
 import re
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from .models import (
@@ -8,8 +10,67 @@ from .models import (
 from .skills import format_skills_for_prompt
 from .agent import run_responses_agent
 from .tools import get_response_tools
+from .config import DATA_DIR, _current_user_id
 
 PROTO_LINE_RE = re.compile(r'^(DONE|BLOCKED|FAILED):\s*(.*)$', re.MULTILINE)
+
+# 检测邮件相关 skill 的关键词
+_EMAIL_SKILL_NAMES = {"send_email_qq", "send_email", "email"}
+_EMAIL_KEYWORDS = ("邮件", "email", "mail", "send_email")
+
+
+def _build_email_context() -> str:
+    """构建邮件发送凭据上下文，注入到 executor system prompt。"""
+    user_id = _current_user_id.get()
+    if not user_id:
+        return ""
+
+    # 获取注册邮箱
+    registered_email = ""
+    users_path = DATA_DIR / "users.json"
+    if users_path.exists():
+        try:
+            users = json.loads(users_path.read_text(encoding="utf-8"))
+            registered_email = users.get(user_id, {}).get("email", "")
+        except Exception:
+            pass
+
+    # 从用户记忆中查找邮件凭据
+    from .memory import get_user_memory
+    mem = get_user_memory(user_id)
+
+    email_keys = ["email", "qq_email", "from_email", "sender_email"]
+    auth_keys = ["qq_auth_code", "auth_code", "smtp_auth_code", "email_auth_code"]
+
+    mem_email_key = next((k for k in email_keys if mem.get(k)), None)
+    mem_auth_key = next((k for k in auth_keys if mem.get(k)), None)
+
+    mem_email_val = mem.get(mem_email_key) if mem_email_key else None
+    mem_auth_present = mem_auth_key is not None
+
+    lines = [
+        "【邮件发送说明】（仅当步骤涉及发邮件时才需关注）",
+        f"  当前用户注册邮箱: {registered_email or '（未知）'}",
+    ]
+    if mem_email_val:
+        lines.append(f"  记忆中的发件邮箱（key={mem_email_key}）: {mem_email_val}")
+    else:
+        lines.append("  记忆中无发件邮箱")
+    if mem_auth_present:
+        lines.append(f"  记忆中有 SMTP 授权码（key={mem_auth_key}），调用 execute_skill 时在 task 里说明使用该 key 即可")
+    else:
+        lines.append("  记忆中无 SMTP 授权码")
+
+    lines += [
+        "  处理规则：",
+        "  1. 确认发件邮箱：优先使用记忆中的邮箱；若无，先 BLOCKED 询问用户：",
+        f'     "发送邮件用哪个邮箱？\n1. 注册邮箱 {registered_email}\n2. 自定义（请回复邮箱地址）\n也可将邮箱存入记忆 key=email 后重试"',
+        "  2. 确认授权码：优先使用记忆中的 key；若无，先 BLOCKED 询问用户：",
+        '     "请提供 QQ 邮箱 SMTP 授权码（非登录密码），或回复后将其存入记忆 key=qq_auth_code"',
+        "  3. 用户在 BLOCKED 后的回复中给出了邮箱/授权码，直接使用该回复值，无需再次询问。",
+        "  4. 两项均已确认后再调用 execute_skill(send_email_qq, ...)。",
+    ]
+    return "\n".join(lines)
 
 
 def strip_code_fence(text: str) -> str:
@@ -56,7 +117,18 @@ def build_history_from_plan(plan: Plan) -> List[str]:
     return history_lines
 
 
+def _needs_email_context(step: PlanStep) -> bool:
+    """判断当前步骤是否涉及邮件发送。"""
+    text = f"{step.title} {step.instruction} {step.skill_hint or ''}".lower()
+    return (
+        any(kw in text for kw in _EMAIL_KEYWORDS)
+        or (step.skill_hint or "").lower() in _EMAIL_SKILL_NAMES
+    )
+
+
 def build_executor_prompt(skills_xml: str, plan: Plan, step: PlanStep, history: str, options: RunOptions) -> str:
+    email_ctx = _build_email_context() if _needs_email_context(step) else ""
+    email_section = f"\n\n{email_ctx}" if email_ctx else ""
     return f"""
 你是一个执行代理（executor agent）。
 
@@ -96,7 +168,7 @@ def build_executor_prompt(skills_xml: str, plan: Plan, step: PlanStep, history: 
    DONE: <结果摘要>
    BLOCKED: <阻塞原因或需要用户补充的问题>
    FAILED: <失败原因>
-10. 协议行必须是最后一行。
+10. 协议行必须是最后一行。{email_section}
 """.strip()
 
 

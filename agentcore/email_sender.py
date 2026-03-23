@@ -114,3 +114,44 @@ def send_password_reset(to_email: str, code: str) -> None:
         action_desc="您正在重置 Ran Agent 账号密码，请在重置页面输入以下验证码：",
     )
     _send(to_email, "【Ran Agent】密码重置验证码", plain, html)
+
+
+def send_agent_reply(to_email: str, original_subject: str, result_text: str) -> None:
+    """发送 agent 处理结果回复邮件。"""
+    subject = f"Re: {original_subject}" if original_subject else "【Ran Agent】回复"
+    # 将换行转为 <br>，保留格式
+    html_body = result_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+    html = f"""\
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0f1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:40px 16px">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#1a1d24;border:1px solid #2a2d35;border-radius:12px;overflow:hidden">
+        <tr>
+          <td style="background:linear-gradient(135deg,#7c6af7 0%,#5a4fcf 100%);padding:24px 32px">
+            <div style="font-size:20px;font-weight:700;color:#fff">⚡ Ran Agent</div>
+            <div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:4px">任务已完成</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 32px">
+            <div style="background:#0f1117;border-radius:8px;padding:20px;color:#e5e7eb;font-size:14px;line-height:1.8;white-space:pre-wrap;font-family:'Courier New',monospace">
+              {html_body}
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#0f1117;padding:14px 32px;border-top:1px solid #2a2d35">
+            <p style="margin:0;color:#4b5563;font-size:12px;text-align:center">
+              此邮件由 Ran Agent 自动回复，发送 @ran &lt;任务&gt; 可继续使用
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+    _send(to_email, subject, result_text, html)

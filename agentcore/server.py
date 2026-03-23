@@ -26,11 +26,14 @@ from .ui import run_direct_agent, parse_auto_command
 from .storage import load_sessions, save_sessions, clear_sessions
 from .storage import save_user_sessions, load_user_sessions, clear_user_sessions
 from .config import get_provider_config, update_provider_config, set_current_user
+from .llm import reset_usage, get_usage
+from . import usage_tracker
 from . import memory as mem
 from .memory import get_user_memory
 from . import skill_manager as sm
 from . import conversations as conv_store
 from .auth import router as auth_router, get_current_user
+from . import email_poller
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -40,7 +43,9 @@ from .auth import router as auth_router, get_current_user
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_sessions()          # 启动时加载全局历史会话（兼容旧数据）
+    email_poller.start()     # 启动邮件轮询
     yield
+    email_poller.stop()      # 停止邮件轮询
     save_sessions()          # 关闭时保存
 
 
@@ -424,6 +429,7 @@ def auto_run(req: AutoRequest, _u: dict = Depends(get_current_user)):
             ctx_lines.append(f"{label}: {h['content']}")
         task = f"【对话上下文】\n{chr(10).join(ctx_lines)}\n\n【当前任务】\n{task}"
 
+    reset_usage()
     set_current_user(_u["id"])
     try:
         plans = make_plans(task, eligible, options=opts, plan_store=ps)
@@ -437,8 +443,11 @@ def auto_run(req: AutoRequest, _u: dict = Depends(get_current_user)):
     finally:
         set_current_user(None)
 
+    usage = get_usage()
+    prov = get_provider_config()
+    usage_tracker.record(_u["id"], prov["name"], prov.get("model", ""), usage["input"], usage["output"])
     save_user_sessions(_u["id"], ps)
-    return {"plans": [_plan_dict(p) for p in plans], "results": results}
+    return {"plans": [_plan_dict(p) for p in plans], "results": results, "usage": usage}
 
 
 @app.post("/api/ask")
@@ -446,12 +455,16 @@ def ask(req: TaskRequest, _u: dict = Depends(get_current_user)):
     eligible = load_eligible_skills()
     opts = _opts(req.options)
     history = _load_history(req.conv_id, _u["id"])
+    reset_usage()
     set_current_user(_u["id"])
     try:
         text = run_direct_agent(req.task, eligible, options=opts, history=history)
     finally:
         set_current_user(None)
-    return {"result": text}
+    usage = get_usage()
+    prov = get_provider_config()
+    usage_tracker.record(_u["id"], prov["name"], prov.get("model", ""), usage["input"], usage["output"])
+    return {"result": text, "usage": usage}
 
 
 @app.post("/api/reply")
@@ -463,11 +476,15 @@ def reply(req: ReplyRequest, _u: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="当前没有待补充的任务")
     pending = sess.state.pending
     eligible = load_eligible_skills()
+    reset_usage()
     set_current_user(_u["id"])
     try:
         result = execute_plan_structured(pending.plan_id, eligible, resume_reply=req.reply, plan_store=ps)
     finally:
         set_current_user(None)
+    usage = get_usage()
+    prov = get_provider_config()
+    usage_tracker.record(_u["id"], prov["name"], prov.get("model", ""), usage["input"], usage["output"])
     save_user_sessions(_u["id"], ps)
     return _exec_result_dict(result, pending.plan_id, ps, sess)
 
@@ -527,6 +544,11 @@ def delete_memory(key: str, _u: dict = Depends(get_current_user)):
 def clear_memory(_u: dict = Depends(get_current_user)):
     _get_user_store(_u["id"])["memory"].clear()
     return {"message": "已清空所有记忆"}
+
+
+@app.get("/api/usage")
+def get_user_usage(_u: dict = Depends(get_current_user)):
+    return usage_tracker.get_stats(_u["id"])
 
 
 # ---------------------------------------------------------------------------

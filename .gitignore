@@ -18,10 +18,11 @@ web/dist/
 # Workspace generated content
 workspace/generated/
 workspace/skills/writenote/notes/
-
+workspace/skills/jcs-coder/
 # IDE / OS
 .claude/
 .vscode/
 .idea/
 *.DS_Store
 Thumbs.db
+

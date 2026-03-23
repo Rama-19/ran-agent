@@ -9,6 +9,14 @@ from typing import Dict, List, Optional, Any
 from .models import RunOptions, normalize_options
 from .skills import load_eligible_skills, find_skill
 from . import memory as mem
+from .memory import get_user_memory
+from .config import _current_user_id
+
+
+def _get_mem():
+    """返回当前用户的记忆对象，无用户时回退到全局记忆。"""
+    user_id = _current_user_id.get()
+    return get_user_memory(user_id) if user_id else mem
 
 
 def safe_decode(data: bytes) -> str:
@@ -123,21 +131,21 @@ def http_request(method: str, url: str, headers: str = "{}", body: str = "") -> 
 
 
 def memory_tool_get(key: str) -> str:
-    val = mem.get(key)
+    val = _get_mem().get(key)
     return json.dumps(val, ensure_ascii=False) if val is not None else f"(key '{key}' 不存在)"
 
 
 def memory_tool_set(key: str, value: str) -> str:
-    mem.set_value(key, value)
+    _get_mem().set_value(key, value)
     return f"已保存 memory[{key!r}]"
 
 
 def memory_tool_delete(key: str) -> str:
-    return f"已删除 memory[{key!r}]" if mem.delete(key) else f"(key '{key}' 不存在)"
+    return f"已删除 memory[{key!r}]" if _get_mem().delete(key) else f"(key '{key}' 不存在)"
 
 
 def memory_tool_list() -> str:
-    entries = mem.all_entries()
+    entries = _get_mem().all_entries()
     if not entries:
         return "(记忆为空)"
     return json.dumps(entries, ensure_ascii=False, indent=2)

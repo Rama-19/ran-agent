@@ -14,8 +14,13 @@ const PROVIDERS = [
   },
 ]
 
+// 每个供应商独立存储一份表单状态
+const EMPTY_PROV = () => ({ api_key: '', base_url: '', model: '', deep_model: '' })
+
 export default function SettingsModal({ onClose }) {
-  const [cfg, setCfg] = useState({ name: 'openai', api_key: '', base_url: '', model: '', deep_model: '' })
+  const [activeName, setActiveName] = useState('openai')
+  // provCfgs: { openai: {...}, anthropic: {...} }
+  const [provCfgs, setProvCfgs] = useState({ openai: EMPTY_PROV(), anthropic: EMPTY_PROV() })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -40,15 +45,24 @@ export default function SettingsModal({ onClose }) {
   const [pwdMsg, setPwdMsg] = useState('')
 
   useEffect(() => {
-    // Load user's own provider config
     api.getUserConfig().then(data => {
       const prov = data.provider || {}
-      setCfg({
-        name: prov.name || 'openai',
-        api_key: '',
-        base_url: prov.base_url || '',
-        model: prov.model || '',
-        deep_model: prov.deep_model || '',
+      setActiveName(prov.active || prov.name || 'openai')
+      setProvCfgs({
+        openai: {
+          api_key: '',
+          _savedKey: prov.openai?.api_key || '',
+          base_url: prov.openai?.base_url || '',
+          model: prov.openai?.model || '',
+          deep_model: prov.openai?.deep_model || '',
+        },
+        anthropic: {
+          api_key: '',
+          _savedKey: prov.anthropic?.api_key || '',
+          base_url: prov.anthropic?.base_url || '',
+          model: prov.anthropic?.model || '',
+          deep_model: prov.anthropic?.deep_model || '',
+        },
       })
       setLoading(false)
     }).catch(() => setLoading(false))
@@ -98,29 +112,21 @@ export default function SettingsModal({ onClose }) {
     setCurPwd(''); setNewPwd(''); setConfirmPwd('')
   }
 
-  const prov = PROVIDERS.find(p => p.id === cfg.name) || PROVIDERS[0]
-  const set = (k, v) => setCfg(prev => ({ ...prev, [k]: v }))
+  const prov = PROVIDERS.find(p => p.id === activeName) || PROVIDERS[0]
+  const cfg = provCfgs[activeName] || EMPTY_PROV()
+  const set = (k, v) => setProvCfgs(prev => ({ ...prev, [activeName]: { ...prev[activeName], [k]: v } }))
   const setS = (k, v) => setSmtp(prev => ({ ...prev, [k]: v }))
 
-  const switchProvider = async (name) => {
-    try {
-      const data = await api.getUserConfig()
-      const p = data.provider || {}
-      if (p.name === name) {
-        setCfg({ name, api_key: '', base_url: p.base_url || '', model: p.model || '', deep_model: p.deep_model || '' })
-      } else {
-        setCfg({ name, api_key: '', base_url: '', model: '', deep_model: '' })
-      }
-    } catch {
-      set('name', name)
-    }
+  const switchProvider = (name) => {
+    setActiveName(name)
+    setMsg('')
   }
 
   const save = async () => {
     setSaving(true); setMsg('')
     try {
       await api.updateUserConfig({
-        name: cfg.name,
+        name: activeName,
         api_key: cfg.api_key || undefined,
         base_url: cfg.base_url || undefined,
         model: cfg.model || undefined,
@@ -161,7 +167,7 @@ export default function SettingsModal({ onClose }) {
 
   return (
     <div style={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={styles.modal}>
+      <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
           <span style={styles.title}>⚙ 模型配置</span>
           <button style={styles.closeBtn} onClick={onClose}>✕</button>
@@ -176,14 +182,15 @@ export default function SettingsModal({ onClose }) {
             <div style={styles.provRow}>
               {PROVIDERS.map(p => (
                 <button key={p.id}
-                  style={{ ...styles.provBtn, ...(cfg.name === p.id ? styles.provBtnActive : {}) }}
+                  style={{ ...styles.provBtn, ...(activeName === p.id ? styles.provBtnActive : {}) }}
                   onClick={() => switchProvider(p.id)}
                 >{p.label}</button>
               ))}
             </div>
 
             <label style={styles.label}>API Key</label>
-            <input style={styles.input} type="password" placeholder="留空则使用系统配置"
+            <input style={styles.input} type="password"
+              placeholder={cfg._savedKey ? `已设置 ${cfg._savedKey}，留空则保持不变` : '留空则使用系统配置'}
               value={cfg.api_key} onChange={e => set('api_key', e.target.value)} />
 
             <label style={styles.label}>Base URL <span style={styles.opt}>(可选，代理或兼容接口)</span></label>

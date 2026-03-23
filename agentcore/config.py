@@ -94,6 +94,16 @@ def load_config() -> dict:
 config = load_config()
 
 
+def _resolve_user_prov(user_prov: dict, name: str) -> dict:
+    """从用户 provider 配置（新嵌套或旧扁平格式）中取出指定供应商的配置。"""
+    # 新格式：user_prov 含 "openai" 或 "anthropic" 子键
+    if "openai" in user_prov or "anthropic" in user_prov:
+        return user_prov.get(name, {})
+    # 旧扁平格式：active 供应商与查询匹配时才使用
+    old_name = user_prov.get("name", "")
+    return user_prov if old_name == name else {}
+
+
 def get_provider_config(name: str = None) -> dict:
     """返回当前激活的 LLM provider 配置。
     优先级：用户个人配置 > openclaw.json > 环境变量。"""
@@ -102,12 +112,18 @@ def get_provider_config(name: str = None) -> dict:
     user_cfg = load_user_config(user_id) if user_id else {}
     user_prov = user_cfg.get("provider", {})
 
-    cfg_prov = user_prov if user_prov.get("api_key") or user_prov.get("name") else config.get("provider", {})
+    # 确定激活的供应商名称
     if name is None:
-        name = cfg_prov.get("name") or os.environ.get("PROVIDER", "openai")
-    # 仅当查询的 provider 与当前激活的 provider 一致时，才读取 openclaw.json 中的覆盖值
-    active_name = cfg_prov.get("name") or os.environ.get("PROVIDER", "openai")
-    stored = cfg_prov if name == active_name else {}
+        # 新格式用 active，旧格式用 name，最后回退环境变量
+        name = (user_prov.get("active") or user_prov.get("name")
+                or config.get("provider", {}).get("name")
+                or os.environ.get("PROVIDER", "openai"))
+
+    stored_user = _resolve_user_prov(user_prov, name)
+    # 若用户没有该供应商配置，回退到 openclaw.json
+    global_prov = config.get("provider", {})
+    global_name = global_prov.get("name", "openai")
+    stored = stored_user if stored_user else (global_prov if global_name == name else {})
 
     if name == "anthropic":
         key = stored.get("api_key") or ANTHROPIC_API_KEY

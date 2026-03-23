@@ -444,8 +444,7 @@ def auto_run(req: AutoRequest, _u: dict = Depends(get_current_user)):
         set_current_user(None)
 
     usage = get_usage()
-    prov = get_provider_config()
-    usage_tracker.record(_u["id"], prov["name"], prov.get("model", ""), usage["input"], usage["output"])
+    usage_tracker.record(_u["id"], usage.get("provider", ""), usage.get("model", ""), usage["input"], usage["output"])
     save_user_sessions(_u["id"], ps)
     return {"plans": [_plan_dict(p) for p in plans], "results": results, "usage": usage}
 
@@ -462,8 +461,7 @@ def ask(req: TaskRequest, _u: dict = Depends(get_current_user)):
     finally:
         set_current_user(None)
     usage = get_usage()
-    prov = get_provider_config()
-    usage_tracker.record(_u["id"], prov["name"], prov.get("model", ""), usage["input"], usage["output"])
+    usage_tracker.record(_u["id"], usage.get("provider", ""), usage.get("model", ""), usage["input"], usage["output"])
     return {"result": text, "usage": usage}
 
 
@@ -483,8 +481,7 @@ def reply(req: ReplyRequest, _u: dict = Depends(get_current_user)):
     finally:
         set_current_user(None)
     usage = get_usage()
-    prov = get_provider_config()
-    usage_tracker.record(_u["id"], prov["name"], prov.get("model", ""), usage["input"], usage["output"])
+    usage_tracker.record(_u["id"], usage.get("provider", ""), usage.get("model", ""), usage["input"], usage["output"])
     save_user_sessions(_u["id"], ps)
     return _exec_result_dict(result, pending.plan_id, ps, sess)
 

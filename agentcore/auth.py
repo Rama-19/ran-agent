@@ -344,29 +344,54 @@ def reset_password(req: ResetPasswordRequest):
 
 # ── 用户个人 Provider 配置 ────────────────────────────────────────────────────
 
+def _mask_key(key: str) -> str:
+    return f"****{key[-4:]}" if len(key) > 4 else ("****" if key else "")
+
+
+def _migrate_flat_provider(prov: dict) -> dict:
+    """将旧的扁平 provider 结构迁移为嵌套结构（兼容旧数据）。"""
+    if "openai" in prov or "anthropic" in prov:
+        return prov  # 已是新格式
+    name = prov.get("name", "openai")
+    nested = {"active": name}
+    if any(k in prov for k in ("api_key", "base_url", "model", "deep_model")):
+        nested[name] = {k: prov[k] for k in ("api_key", "base_url", "model", "deep_model") if k in prov}
+    return nested
+
+
 @router.get("/user-config")
 def get_user_config(current_user: dict = Depends(get_current_user)):
-    """读取当前用户的个人 provider 配置（api_key 脱敏）。"""
+    """读取当前用户的个人 provider 配置（api_key 脱敏）。返回嵌套结构。"""
     cfg = load_user_config(current_user["id"])
-    prov = dict(cfg.get("provider", {}))
-    key = prov.get("api_key", "")
-    prov["api_key"] = f"****{key[-4:]}" if len(key) > 4 else ("****" if key else "")
-    return {"provider": prov}
+    prov = _migrate_flat_provider(dict(cfg.get("provider", {})))
+
+    # 对每个供应商配置脱敏 api_key
+    result = {"active": prov.get("active", "openai")}
+    for name in ("openai", "anthropic"):
+        p = dict(prov.get(name, {}))
+        p["api_key"] = _mask_key(p.get("api_key", ""))
+        result[name] = p
+    return {"provider": result}
 
 
 @router.post("/user-config")
 def update_user_config(req: UserProviderConfigRequest, current_user: dict = Depends(get_current_user)):
-    """更新当前用户的个人 provider 配置。"""
+    """更新当前用户指定供应商的 provider 配置，并设为 active。"""
     cfg = load_user_config(current_user["id"])
-    updates: dict = {"name": req.name}
+    prov = _migrate_flat_provider(cfg.get("provider", {}))
+
+    entry = dict(prov.get(req.name, {}))
     if req.api_key:
-        updates["api_key"] = req.api_key.strip()
+        entry["api_key"] = req.api_key.strip()
     if req.base_url is not None:
-        updates["base_url"] = req.base_url
-    if req.model:
-        updates["model"] = req.model
-    if req.deep_model:
-        updates["deep_model"] = req.deep_model
-    cfg.setdefault("provider", {}).update(updates)
+        entry["base_url"] = req.base_url
+    if req.model is not None:
+        entry["model"] = req.model
+    if req.deep_model is not None:
+        entry["deep_model"] = req.deep_model
+
+    prov[req.name] = entry
+    prov["active"] = req.name
+    cfg["provider"] = prov
     save_user_config(current_user["id"], cfg)
     return {"message": "用户配置已更新"}

@@ -15,6 +15,7 @@ import shutil
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .models import PLAN_STORE, SESSION, RunOptions, Plan, PlanStep
@@ -546,6 +547,26 @@ def clear_memory(_u: dict = Depends(get_current_user)):
 @app.get("/api/usage")
 def get_user_usage(_u: dict = Depends(get_current_user)):
     return usage_tracker.get_stats(_u["id"])
+
+
+@app.get("/api/download")
+def download_file(path: str, _u: dict = Depends(get_current_user)):
+    """下载 agent 生成的文件，仅限 WORKSPACE 目录内。"""
+    from pathlib import Path as _Path
+    from .config import WORKSPACE_ENV
+    try:
+        p = _Path(path).resolve()
+        workspace = _Path(WORKSPACE_ENV).resolve()
+        if not str(p).startswith(str(workspace)):
+            raise HTTPException(status_code=403, detail="只允许下载 workspace 目录内的文件")
+        if not p.exists() or not p.is_file():
+            raise HTTPException(status_code=404, detail="文件不存在")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    media_type, _ = mimetypes.guess_type(str(p))
+    return FileResponse(str(p), filename=p.name, media_type=media_type or "application/octet-stream")
 
 
 # ---------------------------------------------------------------------------

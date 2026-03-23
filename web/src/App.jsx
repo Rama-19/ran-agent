@@ -20,6 +20,41 @@ const DEFAULT_OPTIONS = {
   max_search_rounds: 3,
 }
 
+// ─── 从 agent 消息文本里提取写入的文件路径 ────────────────────────────────────
+const FILE_WRITTEN_RE = /File written:\s*(.+)/g
+
+function extractWrittenFiles(text) {
+  const files = []
+  let m
+  FILE_WRITTEN_RE.lastIndex = 0
+  while ((m = FILE_WRITTEN_RE.exec(text)) !== null) {
+    const p = m[1].trim()
+    if (p) files.push(p)
+  }
+  return files
+}
+
+function DownloadButton({ path }) {
+  const name = path.split(/[\\/]/).pop()
+  const href = `/api/download?path=${encodeURIComponent(path)}`
+  return (
+    <a
+      href={href}
+      download={name}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        marginTop: 6, padding: '3px 10px',
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 5, color: 'var(--accent)', fontSize: 12,
+        textDecoration: 'none', cursor: 'pointer',
+      }}
+      title={path}
+    >
+      ↓ {name}
+    </a>
+  )
+}
+
 // ─── 消息类型 ─────────────────────────────────────────────────────────────────
 function Message({ msg, onDelete, onCopy }) {
   const [hovered, setHovered] = useState(false)
@@ -27,6 +62,7 @@ function Message({ msg, onDelete, onCopy }) {
   const isError = msg.role === 'error'
   const isInfo = msg.role === 'info'
   const canAct = isUser || msg.role === 'agent' || msg.role === 'assistant'
+  const writtenFiles = (!isUser && !isError && !isInfo) ? extractWrittenFiles(msg.text || '') : []
 
   return (
     <div
@@ -52,6 +88,11 @@ function Message({ msg, onDelete, onCopy }) {
       ) : (
         <div className="mdText" style={styles.mdText}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+        </div>
+      )}
+      {writtenFiles.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+          {writtenFiles.map((p, i) => <DownloadButton key={i} path={p} />)}
         </div>
       )}
       {msg.usage && (

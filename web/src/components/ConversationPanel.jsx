@@ -61,7 +61,10 @@ export default function ConversationPanel({ conversations, currentId, onCreate, 
                     onDoubleClick={e => startEdit(conv, e)}
                     title="双击重命名"
                   >
-                    {conv.title}
+                    {conv.title.startsWith('[邮件]') && (
+                      <span style={styles.emailBadge} title="来自邮件">✉</span>
+                    )}
+                    {conv.title.startsWith('[邮件]') ? conv.title.slice(4) : conv.title}
                   </div>
                   <div style={styles.convMeta}>{conv.message_count} 条消息</div>
                   <button
@@ -173,6 +176,13 @@ const styles = {
     padding: '1px 3px',
     borderRadius: 3,
     opacity: 0,
+  },
+  emailBadge: {
+    display: 'inline-block',
+    marginRight: 4,
+    fontSize: 11,
+    color: 'var(--accent)',
+    verticalAlign: 'middle',
   },
   editInput: {
     width: '100%',

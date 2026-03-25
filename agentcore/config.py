@@ -22,6 +22,11 @@ ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 ANTHROPIC_DEEP_MODEL = os.environ.get("ANTHROPIC_DEEP_MODEL", "claude-opus-4-6")
 
+# ── Ollama ────────────────────────────────────────────────────────────────────
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
+OLLAMA_DEEP_MODEL = os.environ.get("OLLAMA_DEEP_MODEL", "llama3")
+
 LAST_BLOCKED = None
 now = datetime.now().strftime("%Y-%m-%d")
 
@@ -96,8 +101,8 @@ config = load_config()
 
 def _resolve_user_prov(user_prov: dict, name: str) -> dict:
     """从用户 provider 配置（新嵌套或旧扁平格式）中取出指定供应商的配置。"""
-    # 新格式：user_prov 含 "openai" 或 "anthropic" 子键
-    if "openai" in user_prov or "anthropic" in user_prov:
+    # 新格式：user_prov 含已知供应商子键
+    if "openai" in user_prov or "anthropic" in user_prov or "ollama" in user_prov:
         return user_prov.get(name, {})
     # 旧扁平格式：active 供应商与查询匹配时才使用
     old_name = user_prov.get("name", "")
@@ -137,6 +142,14 @@ def get_provider_config(name: str = None) -> dict:
             "base_url": stored.get("base_url") or ANTHROPIC_BASE_URL,
             "model": stored.get("model") or ANTHROPIC_MODEL,
             "deep_model": stored.get("deep_model") or ANTHROPIC_DEEP_MODEL,
+        }
+    elif name == "ollama":
+        return {
+            "name": "ollama",
+            "api_key": stored.get("api_key") or "ollama",  # Ollama 不需要真实 key
+            "base_url": stored.get("base_url") or OLLAMA_BASE_URL,
+            "model": stored.get("model") or OLLAMA_MODEL,
+            "deep_model": stored.get("deep_model") or OLLAMA_DEEP_MODEL,
         }
     else:
         key = stored.get("api_key") or api_key

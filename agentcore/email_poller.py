@@ -11,23 +11,29 @@ import imaplib
 import logging
 import os
 import threading
-import time
 from email.header import decode_header
 from typing import Optional
 
 from .config import get_smtp_config, set_current_user
-from .email_sender import send_agent_reply
+from .email_sender import send_agent_reply, send_blocked_question
 from .skills import load_eligible_skills
 from .ui import run_direct_agent
 from .planner import make_plans
 from .executor import execute_plan_structured
-from .models import get_user_plan_store, RunOptions
+from .models import get_user_plan_store, get_user_session, RunOptions, PlanExecResult
 from .storage import save_user_sessions
+from .conversations import create_conversation, append_message
 
 logger = logging.getLogger(__name__)
 
 # 轮询间隔（秒）
 POLL_INTERVAL = int(os.environ.get("EMAIL_POLL_INTERVAL", "30"))
+
+# user_id → conv_id：记录当前正在等待用户回复的 auto 会话（blocked）
+_pending_conv_ids: dict[str, str] = {}
+
+# user_id → conv_id：记录最近一次 ask 会话，用于邮件继续对话
+_ask_conv_ids: dict[str, str] = {}
 
 
 # ── 用户查找 ──────────────────────────────────────────────────────────────────
@@ -111,32 +117,70 @@ def _parse_command(body: str) -> Optional[tuple[str, str]]:
 _EMAIL_OPTIONS = RunOptions(web_mode="on", deep_think=1)
 
 
+# ── 邮件引用内容清理 ──────────────────────────────────────────────────────────
+
+def _strip_reply_quotes(body: str) -> str:
+    """从回复邮件正文中提取用户新写的内容，去除引用部分。"""
+    lines = body.split("\n")
+    clean: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(">"):          # 引用行
+            break
+        if stripped.startswith("On ") and "wrote:" in stripped:  # Gmail/Outlook 引用头
+            break
+        if stripped.startswith("-----") or stripped.startswith("_____"):
+            break
+        clean.append(line)
+    return "\n".join(clean).strip()
+
+
 # ── Agent 执行 ────────────────────────────────────────────────────────────────
 
-def _run_ask(user_id: str, task: str) -> str:
+def _run_ask(user_id: str, task: str, history=None) -> str:
     eligible = load_eligible_skills()
     set_current_user(user_id)
     try:
-        return run_direct_agent(task, eligible, options=_EMAIL_OPTIONS)
+        return run_direct_agent(task, eligible, options=_EMAIL_OPTIONS, history=history)
     finally:
         set_current_user(None)
 
 
-def _run_auto(user_id: str, task: str) -> str:
+def _run_auto(user_id: str, task: str) -> tuple[str, Optional[PlanExecResult]]:
+    """执行 auto 模式，返回 (消息文本, 最终执行结果)。"""
     eligible = load_eligible_skills()
     ps = get_user_plan_store(user_id)
     set_current_user(user_id)
     try:
         plans = make_plans(task, eligible, options=_EMAIL_OPTIONS, plan_store=ps)
         outputs = []
+        last_result = None
         for p in plans:
-            result = execute_plan_structured(p.id, eligible, plan_store=ps)
-            if result.message:
-                outputs.append(result.message)
-            if result.status in ("done", "blocked"):
+            last_result = execute_plan_structured(p.id, eligible, plan_store=ps)
+            if last_result.message:
+                outputs.append(last_result.message)
+            if last_result.status in ("done", "blocked"):
                 break
         save_user_sessions(user_id, ps)
-        return "\n\n".join(outputs) if outputs else "任务已完成（无输出）"
+        msg = "\n\n".join(outputs) if outputs else "任务已完成（无输出）"
+        return msg, last_result
+    finally:
+        set_current_user(None)
+
+
+def _run_reply_email(user_id: str, reply_text: str) -> tuple[str, Optional[PlanExecResult]]:
+    """通过邮件回复恢复被中断的 plan。"""
+    sess = get_user_session(user_id)
+    if not sess.state.pending:
+        return "当前没有待回复的任务", None
+    pending = sess.state.pending
+    eligible = load_eligible_skills()
+    ps = get_user_plan_store(user_id)
+    set_current_user(user_id)
+    try:
+        result = execute_plan_structured(pending.plan_id, eligible, resume_reply=reply_text, plan_store=ps)
+        save_user_sessions(user_id, ps)
+        return result.message or "任务已继续执行", result
     finally:
         set_current_user(None)
 
@@ -174,37 +218,140 @@ def _poll_once() -> None:
                 raw = msg_data[0][1]
                 msg = email.message_from_bytes(raw)
 
+                # 立即标为已读，防止处理途中异常导致下轮重复处理
+                imap.store(num, "+FLAGS", "\\Seen")
+
                 sender = _parse_sender_email(msg.get("From", ""))
                 subject = _decode_str(msg.get("Subject", ""))
                 body = _get_text_body(msg)
 
-                parsed = _parse_command(body)
-                if parsed is None:
-                    # 不是 @ran 指令，忽略但标为已读
-                    imap.store(num, "+FLAGS", "\\Seen")
-                    continue
-
-                mode, task = parsed
                 user = _find_registered_user(sender)
                 if user is None:
                     logger.warning(f"邮件来自未注册用户 {sender}，忽略")
                     imap.store(num, "+FLAGS", "\\Seen")
                     continue
 
+                user_id = user["id"]
+                sess = get_user_session(user_id)
+                parsed = _parse_command(body)
+
+                # ── 回复模式：用户回复了等待中的 blocked 任务 ──
+                if parsed is None and sess.state.pending:
+                    reply_text = _strip_reply_quotes(body)
+                    if not reply_text:
+                        continue
+
+                    logger.info(f"收到任务回复：from={sender} reply={reply_text[:60]!r}")
+                    conv_id = _pending_conv_ids.get(user_id)
+                    if conv_id:
+                        append_message(conv_id, "user", f"[回复] {reply_text}", user_id=user_id)
+
+                    try:
+                        result_text, result = _run_reply_email(user_id, reply_text)
+                    except Exception as e:
+                        result_text = f"继续执行时出错：{e}"
+                        result = None
+                        logger.exception(f"回复执行失败 from={sender}")
+
+                    if conv_id:
+                        append_message(conv_id, "agent", result_text, user_id=user_id)
+
+                    if result and result.status == "blocked" and result.need_input:
+                        sess.set_pending(result.need_input)
+                        send_blocked_question(sender, subject, result.need_input.question)
+                        logger.info(f"任务再次中断，已向 {sender} 发送追问")
+                    else:
+                        sess.clear_pending()
+                        _pending_conv_ids.pop(user_id, None)
+                        send_agent_reply(sender, subject, result_text)
+                        logger.info(f"任务继续完成，已回复 {sender}")
+                    continue
+
+                # ── ask 对话继续：只响应明确的 Re: 回复邮件 ──
+                is_reply_email = subject.lower().startswith("re:")
+                # 优先从内存取；若服务重启则回退到最近一条邮件会话
+                _resolved_ask_conv = _ask_conv_ids.get(user_id)
+                if not _resolved_ask_conv and is_reply_email:
+                    from .conversations import list_conversations
+                    _email_convs = sorted(
+                        [c for c in list_conversations(user_id=user_id)
+                         if c["title"].startswith("[邮件]")],
+                        key=lambda c: c.get("updated_at", ""), reverse=True,
+                    )
+                    if _email_convs:
+                        _resolved_ask_conv = _email_convs[0]["id"]
+                        _ask_conv_ids[user_id] = _resolved_ask_conv  # 恢复内存缓存
+                if parsed is None and is_reply_email and _resolved_ask_conv:
+                    reply_text = _strip_reply_quotes(body)
+                    if not reply_text:
+                        continue
+
+                    ask_conv_id = _resolved_ask_conv
+                    logger.info(f"ask 对话继续：from={sender} reply={reply_text[:60]!r}")
+
+                    from .conversations import get_conversation
+                    conv_data = get_conversation(ask_conv_id, user_id=user_id)
+                    history = []
+                    if conv_data:
+                        for m in conv_data.get("messages", []):
+                            role = m.get("role", "")
+                            if role in ("user", "assistant", "agent"):
+                                history.append({
+                                    "role": "assistant" if role == "agent" else role,
+                                    "content": m.get("text", ""),
+                                })
+
+                    append_message(ask_conv_id, "user", reply_text, user_id=user_id)
+                    try:
+                        result_text = _run_ask(user_id, reply_text, history=history)
+                    except Exception as e:
+                        result_text = f"继续对话时出错：{e}"
+                        logger.exception(f"ask 继续对话失败 from={sender}")
+
+                    append_message(ask_conv_id, "agent", result_text, user_id=user_id)
+                    send_agent_reply(sender, subject, result_text)
+                    logger.info(f"ask 对话已继续回复 {sender}")
+                    continue
+
+                # ── 忽略：非 @ran 且无需处理 ──
+                if parsed is None:
+                    continue
+
+                # ── 新任务模式 ──
+                mode, task = parsed
                 logger.info(f"处理邮件：from={sender} mode={mode} task={task[:60]!r}")
 
+                # 创建会话并记录用户消息
+                conv_title = f"[邮件] {subject}" if subject else "[邮件] @ran 任务"
+                conv = create_conversation(conv_title, user_id=user_id)
+                conv_id = conv["id"]
+                append_message(conv_id, "user", task, user_id=user_id)
+
+                # ask 会话 ID 在执行前就记录，确保异常或重启后仍可继续对话
+                if mode == "ask":
+                    _ask_conv_ids[user_id] = conv_id
+
+                exec_result: Optional[PlanExecResult] = None
                 try:
                     if mode == "ask":
-                        reply_text = _run_ask(user["id"], task)
+                        result_text = _run_ask(user_id, task)
                     else:
-                        reply_text = _run_auto(user["id"], task)
+                        result_text, exec_result = _run_auto(user_id, task)
                 except Exception as e:
-                    reply_text = f"处理任务时出错：{e}"
+                    result_text = f"处理任务时出错：{e}"
                     logger.exception(f"agent 执行失败 from={sender}")
 
-                send_agent_reply(sender, subject, reply_text)
-                imap.store(num, "+FLAGS", "\\Seen")
-                logger.info(f"已回复 {sender}")
+                append_message(conv_id, "agent", result_text, user_id=user_id)
+
+                # 检查是否中断等待用户输入
+                if exec_result and exec_result.status == "blocked" and exec_result.need_input:
+                    sess.set_pending(exec_result.need_input)
+                    _pending_conv_ids[user_id] = conv_id
+                    send_blocked_question(sender, subject, exec_result.need_input.question)
+                    logger.info(f"任务中断，已向 {sender} 发送等待回复邮件")
+                else:
+                    send_agent_reply(sender, subject, result_text)
+                    logger.info(f"已回复 {sender}")
 
             except Exception:
                 logger.exception(f"处理邮件 {num} 时出错，跳过")

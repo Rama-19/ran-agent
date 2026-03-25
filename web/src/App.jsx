@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import api from './api'
-import SkillPanel from './components/SkillPanel'
 import PlanCard from './components/PlanCard'
 import OptionsPanel from './components/OptionsPanel'
 import BlockedBanner from './components/BlockedBanner'
@@ -55,6 +54,38 @@ function DownloadButton({ path }) {
   )
 }
 
+// ─── 代码块（带复制按钮）────────────────────────────────────────────────────────
+function CodeBlock({ node, inline, className, children, ...props }) {
+  const [copied, setCopied] = useState(false)
+  const code = String(children).replace(/\n$/, '')
+  const lang = (className || '').replace('language-', '') || ''
+
+  if (inline) {
+    return <code style={styles.inlineCode} {...props}>{children}</code>
+  }
+
+  const copy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div style={styles.codeWrapper}>
+      <div style={styles.codeHeader}>
+        <span style={styles.codeLang}>{lang || 'code'}</span>
+        <button style={styles.codeCopyBtn} onClick={copy}>
+          {copied ? '✓ 已复制' : '复制'}
+        </button>
+      </div>
+      <pre style={styles.codePre}><code {...props}>{code}</code></pre>
+    </div>
+  )
+}
+
+const MD_COMPONENTS = { code: CodeBlock }
+
 // ─── 消息类型 ─────────────────────────────────────────────────────────────────
 function Message({ msg, onDelete, onCopy }) {
   const [hovered, setHovered] = useState(false)
@@ -87,7 +118,7 @@ function Message({ msg, onDelete, onCopy }) {
         <pre style={styles.msgText}>{msg.text}</pre>
       ) : (
         <div className="mdText" style={styles.mdText}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{msg.text}</ReactMarkdown>
         </div>
       )}
       {writtenFiles.length > 0 && (
@@ -561,8 +592,6 @@ export default function App() {
           onRename={renameConversation}
         />
 
-        {/* ── Sidebar ── */}
-        <SkillPanel skills={skills} loading={skillsLoading} />
 
         {/* ── Main ── */}
         <main style={styles.main}>
@@ -928,6 +957,54 @@ const styles = {
     fontSize: 13,
     lineHeight: 1.7,
     wordBreak: 'break-word',
+  },
+  codeWrapper: {
+    margin: '8px 0',
+    borderRadius: 7,
+    border: '1px solid var(--border)',
+    overflow: 'hidden',
+    background: 'var(--surface)',
+  },
+  codeHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '4px 12px',
+    background: 'var(--surface2)',
+    borderBottom: '1px solid var(--border)',
+  },
+  codeLang: {
+    fontSize: 11,
+    color: 'var(--text-dim)',
+    fontFamily: 'var(--font)',
+    textTransform: 'lowercase',
+  },
+  codeCopyBtn: {
+    background: 'transparent',
+    border: '1px solid var(--border)',
+    color: 'var(--text-dim)',
+    borderRadius: 4,
+    padding: '2px 8px',
+    fontSize: 11,
+    cursor: 'pointer',
+    transition: 'color .15s, border-color .15s',
+  },
+  codePre: {
+    margin: 0,
+    padding: '10px 14px',
+    overflowX: 'auto',
+    fontSize: 12.5,
+    lineHeight: 1.55,
+    fontFamily: 'var(--font)',
+    background: 'var(--surface)',
+  },
+  inlineCode: {
+    background: 'var(--surface2)',
+    border: '1px solid var(--border)',
+    borderRadius: 3,
+    padding: '1px 5px',
+    fontSize: '0.9em',
+    fontFamily: 'var(--font)',
   },
   inputBox: {
     background: 'var(--surface)',

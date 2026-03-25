@@ -350,7 +350,7 @@ def _mask_key(key: str) -> str:
 
 def _migrate_flat_provider(prov: dict) -> dict:
     """将旧的扁平 provider 结构迁移为嵌套结构（兼容旧数据）。"""
-    if "openai" in prov or "anthropic" in prov:
+    if "openai" in prov or "anthropic" in prov or "ollama" in prov:
         return prov  # 已是新格式
     name = prov.get("name", "openai")
     nested = {"active": name}
@@ -367,7 +367,7 @@ def get_user_config(current_user: dict = Depends(get_current_user)):
 
     # 对每个供应商配置脱敏 api_key
     result = {"active": prov.get("active", "openai")}
-    for name in ("openai", "anthropic"):
+    for name in ("openai", "anthropic", "ollama"):
         p = dict(prov.get(name, {}))
         p["api_key"] = _mask_key(p.get("api_key", ""))
         result[name] = p

@@ -80,6 +80,12 @@ def run_agent(
         return _run_anthropic(
             system_prompt, user_input, tools, dispatch, model, max_rounds, prov, history
         )
+    elif prov["name"] == "ollama":
+        # Ollama 使用 OpenAI 兼容的 Chat Completions 接口
+        return _run_chat_completions(
+            system_prompt, user_input, tools, dispatch, model,
+            reasoning_effort, max_rounds, prov, history
+        )
     else:
         return _run_openai(
             system_prompt, user_input, tools, dispatch, model,

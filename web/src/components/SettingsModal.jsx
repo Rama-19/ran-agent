@@ -12,6 +12,11 @@ const PROVIDERS = [
     baseUrlPlaceholder: 'https://api.anthropic.com',
     modelPlaceholder: 'claude-sonnet-4-6', deepPlaceholder: 'claude-opus-4-6',
   },
+  {
+    id: 'ollama', label: 'Ollama',
+    baseUrlPlaceholder: 'http://localhost:11434/v1',
+    modelPlaceholder: 'llama3', deepPlaceholder: 'llama3',
+  },
 ]
 
 // 每个供应商独立存储一份表单状态
@@ -20,7 +25,7 @@ const EMPTY_PROV = () => ({ api_key: '', base_url: '', model: '', deep_model: ''
 export default function SettingsModal({ onClose }) {
   const [activeName, setActiveName] = useState('openai')
   // provCfgs: { openai: {...}, anthropic: {...} }
-  const [provCfgs, setProvCfgs] = useState({ openai: EMPTY_PROV(), anthropic: EMPTY_PROV() })
+  const [provCfgs, setProvCfgs] = useState({ openai: EMPTY_PROV(), anthropic: EMPTY_PROV(), ollama: EMPTY_PROV() })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -62,6 +67,13 @@ export default function SettingsModal({ onClose }) {
           base_url: prov.anthropic?.base_url || '',
           model: prov.anthropic?.model || '',
           deep_model: prov.anthropic?.deep_model || '',
+        },
+        ollama: {
+          api_key: '',
+          _savedKey: prov.ollama?.api_key || '',
+          base_url: prov.ollama?.base_url || '',
+          model: prov.ollama?.model || '',
+          deep_model: prov.ollama?.deep_model || '',
         },
       })
       setLoading(false)
@@ -188,9 +200,9 @@ export default function SettingsModal({ onClose }) {
               ))}
             </div>
 
-            <label style={styles.label}>API Key</label>
+            <label style={styles.label}>API Key{activeName === 'ollama' && <span style={styles.opt}> (Ollama 本地部署可留空)</span>}</label>
             <input style={styles.input} type="password"
-              placeholder={cfg._savedKey ? `已设置 ${cfg._savedKey}，留空则保持不变` : '留空则使用系统配置'}
+              placeholder={cfg._savedKey ? `已设置 ${cfg._savedKey}，留空则保持不变` : (activeName === 'ollama' ? '本地 Ollama 无需填写' : '留空则使用系统配置')}
               value={cfg.api_key} onChange={e => set('api_key', e.target.value)} />
 
             <label style={styles.label}>Base URL <span style={styles.opt}>(可选，代理或兼容接口)</span></label>

@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal'
 import SkillManager from './components/SkillManager'
 import ConversationPanel from './components/ConversationPanel'
 import AuthModal from './components/AuthModal'
+import GroupChatPanel from './components/GroupChatPanel'
 
 // ─── 默认选项 ────────────────────────────────────────────────────────────────
 const DEFAULT_OPTIONS = {
@@ -607,6 +608,7 @@ export default function App() {
           <div style={styles.tabs}>
             {[
               { id: 'chat', label: '💬 对话' },
+              { id: 'group', label: '🤝 多 Agent' },
               { id: 'plans', label: `📋 计划 (${plans.length})` },
               { id: 'memory', label: `🧠 记忆 (${Object.keys(memory).length})` },
               { id: 'skills', label: '⚡ Skills' },
@@ -622,8 +624,13 @@ export default function App() {
           </div>
 
           {/* Content */}
-          <div style={styles.content}>
-            {tab === 'chat' ? (
+          <div style={tab === 'group' ? { ...styles.content, padding: 0, overflow: 'hidden' } : styles.content}>
+            {tab === 'group' ? (
+              <GroupChatPanel
+                convId={currentConvId}
+                onConvUpdate={loadConversations}
+              />
+            ) : tab === 'chat' ? (
               <div style={styles.chatArea}>
                 {messages.length === 0 ? (
                   <div style={styles.empty}>
@@ -678,8 +685,8 @@ export default function App() {
             )}
           </div>
 
-          {/* Input */}
-          <div style={styles.inputBox}>
+          {/* Input — hidden on group tab */}
+          {tab !== 'group' && <div style={styles.inputBox}>
             {/* Mode selector */}
             <div style={styles.modeRow}>
               {[
@@ -772,7 +779,7 @@ export default function App() {
                 ) : '▶'}
               </button>
             </div>
-          </div>
+          </div>}
         </main>
       </div>
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}

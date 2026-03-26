@@ -94,6 +94,20 @@ const api = {
   // Model info
   getCurrentModel: () => request('GET', '/current-model'),
 
+  // Multi-agent groups
+  getAgentRoles: () => request('GET', '/agent-roles'),
+  getGroups: () => request('GET', '/groups'),
+  getOrCreateDefaultGroup: () => request('GET', '/groups/default'),
+  createGroup: (data) => request('POST', '/groups', data),
+  getGroup: (id) => request('GET', `/groups/${id}`),
+  updateGroup: (id, data) => request('PATCH', `/groups/${id}`, data),
+  deleteGroup: (id) => request('DELETE', `/groups/${id}`),
+  addAgent: (groupId, data) => request('POST', `/groups/${groupId}/agents`, data),
+  updateAgent: (groupId, agentId, data) => request('PATCH', `/groups/${groupId}/agents/${agentId}`, data),
+  removeAgent: (groupId, agentId) => request('DELETE', `/groups/${groupId}/agents/${agentId}`),
+  groupChat: (groupId, message, options, conv_id) =>
+    request('POST', `/groups/${groupId}/chat`, { message, options, conv_id }),
+
   // Usage stats
   getUsage: () => request('GET', '/usage'),
 

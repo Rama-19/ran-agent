@@ -35,6 +35,8 @@ from . import skill_manager as sm
 from . import conversations as conv_store
 from .auth import router as auth_router, get_current_user
 from . import email_poller
+from . import group_store
+from .multi_agent import BUILTIN_ROLES, run_group_chat
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -662,6 +664,176 @@ def current_model(_u: dict = Depends(get_current_user)):
         return {"provider": cfg["name"], "model": cfg["model"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Routes — Multi-Agent Groups
+# ---------------------------------------------------------------------------
+
+
+class GroupCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    roles: Optional[List[str]] = None  # 为空则创建默认5角色群组
+
+
+class GroupUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class GroupChatRequest(BaseModel):
+    message: str
+    conv_id: Optional[str] = None
+    options: Optional[RunOptionsModel] = None
+
+
+class AgentAddRequest(BaseModel):
+    role: str
+    name: Optional[str] = ""
+    description: Optional[str] = ""
+    system_prompt: Optional[str] = ""
+
+
+class AgentUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@app.get("/api/agent-roles")
+def get_agent_roles(_u: dict = Depends(get_current_user)):
+    """返回所有内置 agent 角色模板"""
+    return {
+        role: {
+            "name": info["name"],
+            "description": info["description"],
+            "system_prompt": info["system_prompt"],
+        }
+        for role, info in BUILTIN_ROLES.items()
+    }
+
+
+@app.get("/api/groups")
+def get_groups(_u: dict = Depends(get_current_user)):
+    return group_store.list_groups(_u["id"])
+
+
+@app.post("/api/groups")
+def create_group(req: GroupCreateRequest, _u: dict = Depends(get_current_user)):
+    g = group_store.create_group(
+        _u["id"],
+        name=req.name,
+        description=req.description or "",
+        roles=req.roles,
+    )
+    return g.to_dict()
+
+
+@app.get("/api/groups/default")
+def get_or_create_default_group(_u: dict = Depends(get_current_user)):
+    """获取或创建默认群组"""
+    groups = group_store.load_groups(_u["id"])
+    if groups:
+        return groups[0].to_dict()
+    g = group_store.create_default_group(_u["id"])
+    return g.to_dict()
+
+
+@app.get("/api/groups/{group_id}")
+def get_group(group_id: str, _u: dict = Depends(get_current_user)):
+    g = group_store.get_group(_u["id"], group_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="群组不存在")
+    return g.to_dict()
+
+
+@app.patch("/api/groups/{group_id}")
+def update_group(group_id: str, req: GroupUpdateRequest, _u: dict = Depends(get_current_user)):
+    g = group_store.update_group(_u["id"], group_id, name=req.name, description=req.description)
+    if not g:
+        raise HTTPException(status_code=404, detail="群组不存在")
+    return g.to_dict()
+
+
+@app.delete("/api/groups/{group_id}")
+def delete_group(group_id: str, _u: dict = Depends(get_current_user)):
+    if not group_store.delete_group(_u["id"], group_id):
+        raise HTTPException(status_code=404, detail="群组不存在")
+    return {"message": "已删除"}
+
+
+@app.post("/api/groups/{group_id}/agents")
+def add_agent_to_group(group_id: str, req: AgentAddRequest, _u: dict = Depends(get_current_user)):
+    agent = group_store.add_agent(
+        _u["id"], group_id,
+        role=req.role,
+        name=req.name or "",
+        description=req.description or "",
+        system_prompt=req.system_prompt or "",
+    )
+    if not agent:
+        raise HTTPException(status_code=404, detail="群组不存在")
+    return agent.to_dict()
+
+
+@app.patch("/api/groups/{group_id}/agents/{agent_id}")
+def update_agent_in_group(
+    group_id: str, agent_id: str, req: AgentUpdateRequest,
+    _u: dict = Depends(get_current_user)
+):
+    agent = group_store.update_agent(
+        _u["id"], group_id, agent_id,
+        name=req.name,
+        description=req.description,
+        system_prompt=req.system_prompt,
+        enabled=req.enabled,
+    )
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent 不存在")
+    return agent.to_dict()
+
+
+@app.delete("/api/groups/{group_id}/agents/{agent_id}")
+def remove_agent_from_group(group_id: str, agent_id: str, _u: dict = Depends(get_current_user)):
+    if not group_store.remove_agent(_u["id"], group_id, agent_id):
+        raise HTTPException(status_code=404, detail="agent 不存在或无法删除协调者")
+    return {"message": "已删除"}
+
+
+@app.post("/api/groups/{group_id}/chat")
+def group_chat(group_id: str, req: GroupChatRequest, _u: dict = Depends(get_current_user)):
+    """多 agent 群聊入口"""
+    g = group_store.get_group(_u["id"], group_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="群组不存在")
+
+    eligible = load_eligible_skills()
+    history = _load_history(req.conv_id, _u["id"])
+
+    reset_usage()
+    set_current_user(_u["id"])
+    try:
+        result = run_group_chat(
+            group=g,
+            user_input=req.message,
+            history=history,
+            skills=eligible,
+            user_id=_u["id"],
+        )
+    finally:
+        set_current_user(None)
+
+    usage = get_usage()
+    usage_tracker.record(
+        _u["id"],
+        usage.get("provider", ""),
+        usage.get("model", ""),
+        usage["input"],
+        usage["output"],
+    )
+    return result.to_dict()
 
 
 @app.post("/api/upload")

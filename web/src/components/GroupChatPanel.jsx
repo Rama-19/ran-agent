@@ -160,7 +160,7 @@ function AgentEditModal({ agent, groupId, onClose, onSaved }) {
 }
 
 // ── 主组件 ────────────────────────────────────────────────────────────────
-export default function GroupChatPanel({ convId, onConvUpdate }) {
+export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
   const [groups, setGroups] = useState([])
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [messages, setMessages] = useState([])
@@ -183,6 +183,20 @@ export default function GroupChatPanel({ convId, onConvUpdate }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
+
+  // 切换会话时加载历史记录
+  useEffect(() => {
+    if (!convId) return
+    api.getConversation(convId).then(data => {
+      if (!data || !data.messages) return
+      const loaded = data.messages.map(m => ({
+        id: m.id,
+        role: m.role === 'user' ? 'user' : 'agent',
+        text: m.text,
+      }))
+      setMessages(loaded)
+    }).catch(() => {})
+  }, [convId])
 
   const loadGroups = async () => {
     try {
@@ -229,9 +243,19 @@ export default function GroupChatPanel({ convId, onConvUpdate }) {
       setMessages(prev => [...prev, agentMsg])
 
       // 保存到对话
-      if (convId) {
-        await api.appendMessage(convId, 'user', task).catch(() => {})
-        await api.appendMessage(convId, 'agent', result.final_answer || '').catch(() => {})
+      let activeConvId = convId
+      if (!activeConvId) {
+        try {
+          const conv = await api.createConversation()
+          activeConvId = conv.id
+          onNewConv?.(conv)
+        } catch {
+          activeConvId = null
+        }
+      }
+      if (activeConvId) {
+        await api.appendMessage(activeConvId, 'user', task).catch(() => {})
+        await api.appendMessage(activeConvId, 'agent', result.final_answer || '').catch(() => {})
         onConvUpdate?.()
       }
     } catch (e) {

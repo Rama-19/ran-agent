@@ -1,6 +1,8 @@
 # Ran Agent
 
-> 自托管 AI Agent 平台，支持技能驱动的任务规划、多用户认证与现代化 Web 界面。
+> 自托管 AI Agent 平台，支持技能驱动的任务规划、多 Agent 群聊、多用户认证与现代化 Web 界面。
+
+**仓库地址：** [Gitee](https://gitee.com/mayangyu/ran-agent)（主要）· [GitHub](https://github.com/Rama-19/ran-agent)
 
 **Ran Agent** 让你定义可复用的*技能（Skills）*，用自然语言描述目标，Agent 将自动规划并逐步执行多步任务——完全运行在你自己的基础设施上。
 
@@ -11,13 +13,15 @@
 | 类别 | 亮点 |
 |------|------|
 | **任务引擎** | 自动规划→执行、仅规划、直接问答三种模式 |
+| **多 Agent 群聊** | 创建包含多个角色（协调者、研究员、执行者、审阅者、总结者、专家、自定义）的 Agent 群组，协作完成复杂任务 |
 | **技能系统** | 在工作区放入 `SKILL.md`，Agent 自动读取并判断何时调用 |
-| **多用户** | 邮箱+密码注册，SMTP 验证码；每用户独立会话、记忆与配置 |
+| **多用户** | 邮箱+密码注册，SMTP 验证码；支持邮件链接激活账号；每用户独立会话、记忆与配置 |
 | **认证** | JWT 鉴权、修改密码、忘记/重置密码流程 |
 | **记忆** | 持久化键值存储，注入每次 Agent 上下文，按用户隔离 |
 | **模型提供商** | 支持 OpenAI（Responses API）和 Anthropic（Messages API），可按用户覆盖配置 |
-| **工具** | 文件读写、Shell 命令、HTTP 请求、目录列表、网页搜索 |
-| **Web UI** | 对话管理、计划查看、记忆管理、技能管理——深色主题 React SPA |
+| **Token 用量** | 每次响应实时显示 Token 消耗量 |
+| **工具** | 文件读写（支持下载按钮）、Shell 命令、HTTP 请求、目录列表、网页搜索 |
+| **Web UI** | 对话管理（支持复制/删除）、计划查看、记忆管理、技能管理、Agent 群聊——深色主题 React SPA |
 
 ---
 
@@ -49,6 +53,8 @@ ran-agent/
 │   │       ├── AuthModal.jsx       # 登录 / 注册 / 忘记密码
 │   │       ├── SettingsModal.jsx   # 模型配置 + 修改密码 + SMTP
 │   │       ├── ConversationPanel.jsx
+│   │       ├── GroupChatPanel.jsx  # 多 Agent 群聊
+│   │       ├── CreateGroupModal.jsx
 │   │       ├── SkillPanel.jsx
 │   │       ├── SkillManager.jsx
 │   │       ├── PlanCard.jsx
@@ -72,7 +78,7 @@ ran-agent/
 ### 1. 克隆并安装依赖
 
 ```bash
-git clone https://github.com/your-username/ran-agent.git
+git clone https://gitee.com/mayangyu/ran-agent.git
 cd ran-agent
 
 # 后端
@@ -117,6 +123,24 @@ cd web && npm run dev
 打开 **http://localhost:5173**，注册账号后即可开始使用。
 
 > **生产构建**：`cd web && npm run build`，静态文件输出至 `web/dist/`。
+
+---
+
+## 👥 多 Agent 群聊
+
+**群聊**标签页允许你组建一支由不同角色 Agent 构成的团队，协作解决复杂任务：
+
+| 角色 | 图标 | 职责 |
+|------|------|------|
+| coordinator（协调者） | 🎯 | 统筹对话流程，分配子任务 |
+| researcher（研究员） | 🔍 | 收集信息与背景资料 |
+| executor（执行者） | ⚙️ | 运行代码与命令 |
+| reviewer（审阅者） | 🔎 | 检查输出结果的正确性 |
+| summarizer（总结者） | 📝 | 将结论提炼为最终答案 |
+| expert（专家） | 🎓 | 提供特定领域的专业知识 |
+| custom（自定义） | 🤖 | 用户自定义角色 |
+
+创建群组、描述任务，观察各 Agent 轮番发言——每条回复以颜色区分的气泡展示。
 
 ---
 

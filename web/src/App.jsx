@@ -161,6 +161,8 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState('auto')   // 'auto' | 'plan' | 'ask'
   const [tab, setTab] = useState('chat')     // 'chat' | 'plans' | 'memory' | 'skills'
+  const tabRef = useRef('chat')
+  // keep tabRef in sync so callbacks don't get stale closures
   const [skillsLoading, setSkillsLoading] = useState(true)
   const [memory, setMemory] = useState({})
   const [showSettings, setShowSettings] = useState(false)
@@ -193,6 +195,7 @@ export default function App() {
   const [currentConvId, setCurrentConvId] = useState(null)
   const currentConvIdRef = useRef(null)
   currentConvIdRef.current = currentConvId
+  tabRef.current = tab
 
   // ── 启动时验证 token ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -264,9 +267,11 @@ export default function App() {
     if (convId === currentConvIdRef.current) return
     try {
       const data = await api.getConversation(convId)
-      setMessages(data.messages.map(m => ({ id: m.id, role: m.role, text: m.text })))
       setCurrentConvId(convId)
-      setTab('chat')
+      if (tabRef.current !== 'group') {
+        setMessages(data.messages.map(m => ({ id: m.id, role: m.role, text: m.text })))
+        setTab('chat')
+      }
     } catch {
       /* ignore */
     }
@@ -629,6 +634,10 @@ export default function App() {
               <GroupChatPanel
                 convId={currentConvId}
                 onConvUpdate={loadConversations}
+                onNewConv={(conv) => {
+                  setCurrentConvId(conv.id)
+                  setConversations(prev => [conv, ...prev])
+                }}
               />
             ) : tab === 'chat' ? (
               <div style={styles.chatArea}>
@@ -704,17 +713,21 @@ export default function App() {
                 </button>
               ))}
               <div style={styles.providerRow}>
-                {['openai', 'anthropic'].map(p => (
+                {[
+                  { id: 'openai', label: 'OpenAI' },
+                  { id: 'anthropic', label: 'Anthropic' },
+                  { id: 'ollama', label: 'Ollama' },
+                ].map(p => (
                   <button
-                    key={p}
-                    title={`切换到 ${p}`}
+                    key={p.id}
+                    title={`切换到 ${p.id}`}
                     style={{
                       ...styles.modeBtn,
-                      ...(providerInfo?.provider === p ? styles.modeBtnActive : {}),
+                      ...(providerInfo?.provider === p.id ? styles.modeBtnActive : {}),
                     }}
-                    onClick={() => switchProvider(p)}
+                    onClick={() => switchProvider(p.id)}
                   >
-                    {p === 'openai' ? 'OpenAI' : 'Anthropic'}
+                    {p.label}
                   </button>
                 ))}
               </div>

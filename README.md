@@ -1,6 +1,8 @@
 # Ran Agent
 
-> A self-hosted AI Agent platform with skill-based task planning, multi-user auth, and a modern web UI.
+> A self-hosted AI Agent platform with skill-based task planning, multi-agent group chat, multi-user auth, and a modern web UI.
+
+**Repositories:** [Gitee](https://gitee.com/mayangyu/ran-agent) · [GitHub](https://github.com/Rama-19/ran-agent)
 
 **Ran Agent** lets you define reusable *Skills*, describe goals in plain language, and watch the agent autonomously plan and execute multi-step tasks — all running on your own infrastructure.
 
@@ -11,13 +13,15 @@
 | Category | Highlights |
 |----------|-----------|
 | **Task Engine** | Auto-plan → execute, Plan-only, or Direct-ask modes |
+| **Multi-Agent Group Chat** | Spin up a group of role-based agents (coordinator, researcher, executor, reviewer, summarizer, expert, custom) that collaborate in a shared conversation |
 | **Skill System** | Drop a `SKILL.md` in your workspace — the agent reads it and decides when to use the skill |
 | **Multi-user** | Email + password registration with SMTP verification codes; per-user sessions, memory, and config |
-| **Auth** | JWT authentication, password change, forgot/reset-password flow |
+| **Auth** | JWT authentication, password change, forgot/reset-password flow; activate account via email link |
 | **Memory** | Persistent key-value store injected into every agent context, isolated per user |
 | **Providers** | OpenAI (Responses API) and Anthropic (Messages API), per-user provider config override |
-| **Tools** | File read/write, shell exec, HTTP requests, directory listing, web search |
-| **Web UI** | Conversations, plan viewer, memory manager, skill manager — dark-themed React SPA |
+| **Token Usage** | Real-time token consumption display per response |
+| **Tools** | File read/write (with download button), shell exec, HTTP requests, directory listing, web search |
+| **Web UI** | Conversations (copy/delete), plan viewer, memory manager, skill manager, group chat — dark-themed React SPA |
 
 ---
 
@@ -49,6 +53,8 @@ ran-agent/
 │   │       ├── AuthModal.jsx       # Login / Register / Forgot-password
 │   │       ├── SettingsModal.jsx   # Provider config + change password + SMTP
 │   │       ├── ConversationPanel.jsx
+│   │       ├── GroupChatPanel.jsx  # Multi-agent group chat
+│   │       ├── CreateGroupModal.jsx
 │   │       ├── SkillPanel.jsx
 │   │       ├── SkillManager.jsx
 │   │       ├── PlanCard.jsx
@@ -72,7 +78,7 @@ ran-agent/
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-username/ran-agent.git
+git clone https://github.com/Rama-19/ran-agent.git
 cd ran-agent
 
 # Backend
@@ -117,6 +123,24 @@ cd web && npm run dev
 Open **http://localhost:5173** — register an account and start chatting.
 
 > **Production build**: `cd web && npm run build` — serves static files from `web/dist/`.
+
+---
+
+## 👥 Multi-Agent Group Chat
+
+The **Group Chat** tab lets you assemble a team of agents with distinct roles that collaborate to solve a task:
+
+| Role | Icon | Purpose |
+|------|------|---------|
+| coordinator | 🎯 | Orchestrates the conversation and delegates sub-tasks |
+| researcher | 🔍 | Gathers information and context |
+| executor | ⚙️ | Runs code and commands |
+| reviewer | 🔎 | Checks outputs for correctness |
+| summarizer | 📝 | Distills findings into a final answer |
+| expert | 🎓 | Provides domain-specific knowledge |
+| custom | 🤖 | Any user-defined role |
+
+Create a group, describe the task, and watch agents take turns — each response is shown in a colour-coded bubble.
 
 ---
 

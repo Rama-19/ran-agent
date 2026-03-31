@@ -73,7 +73,7 @@ function AgentTurnBubble({ turn }) {
 }
 
 // ── 消息组（用户 + 群组回复）─────────────────────────────────────────────
-function GroupMessage({ msg }) {
+function GroupMessage({ msg, groupName }) {
   const isUser = msg.role === 'user'
   if (isUser) {
     return (
@@ -83,27 +83,52 @@ function GroupMessage({ msg }) {
     )
   }
 
-  // agent group reply
+  // agent group reply with full structured result (sent in this session)
   const result = msg.groupResult
-  if (!result) return null
+  if (result) {
+    return (
+      <div style={styles.groupReply}>
+        {/* 群组标签 */}
+        {groupName && (
+          <div style={styles.groupBadgeRow}>
+            <span style={styles.groupBadge}>🤝 多 Agent · {groupName}</span>
+          </div>
+        )}
+        <div style={styles.agentTurns}>
+          {result.turns?.map((turn, i) => (
+            <AgentTurnBubble key={i} turn={turn} />
+          ))}
+        </div>
+        {result.final_answer && (
+          <div style={styles.finalAnswer}>
+            <div style={styles.finalLabel}>
+              <span style={styles.finalIcon}>✨</span> 最终答案
+            </div>
+            <div style={styles.finalContent}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.final_answer}</ReactMarkdown>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
+  // Plain text fallback — loaded from conversation history
   return (
     <div style={styles.groupReply}>
-      <div style={styles.agentTurns}>
-        {result.turns?.map((turn, i) => (
-          <AgentTurnBubble key={i} turn={turn} />
-        ))}
-      </div>
-      {result.final_answer && (
-        <div style={styles.finalAnswer}>
-          <div style={styles.finalLabel}>
-            <span style={styles.finalIcon}>✨</span> 最终答案
-          </div>
-          <div style={styles.finalContent}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.final_answer}</ReactMarkdown>
-          </div>
+      {groupName && (
+        <div style={styles.groupBadgeRow}>
+          <span style={styles.groupBadge}>🤝 多 Agent · {groupName}</span>
         </div>
       )}
+      <div style={styles.finalAnswer}>
+        <div style={styles.finalLabel}>
+          <span style={styles.finalIcon}>✨</span> 最终答案
+        </div>
+        <div style={styles.finalContent}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text || ''}</ReactMarkdown>
+        </div>
+      </div>
     </div>
   )
 }
@@ -160,7 +185,7 @@ function AgentEditModal({ agent, groupId, onClose, onSaved }) {
 }
 
 // ── 主组件 ────────────────────────────────────────────────────────────────
-export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
+export default function GroupChatPanel({ onConvUpdate, onNewConv }) {
   const [groups, setGroups] = useState([])
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [messages, setMessages] = useState([])
@@ -173,6 +198,10 @@ export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
   const [addAgentRole, setAddAgentRole] = useState('custom')
   const [addAgentName, setAddAgentName] = useState('')
   const [roleTemplates, setRoleTemplates] = useState({})
+  // 每个群组独立记录对应的会话 ID，持久化到 localStorage
+  const [groupConvMap, setGroupConvMap] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('group_conv_map') || '{}') } catch { return {} }
+  })
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -184,19 +213,29 @@ export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
-  // 切换会话时加载历史记录
-  useEffect(() => {
-    if (!convId) return
-    api.getConversation(convId).then(data => {
-      if (!data || !data.messages) return
-      const loaded = data.messages.map(m => ({
+  // 记录群组→会话映射，同步到 localStorage
+  const saveGroupConv = (groupId, convId) => {
+    const next = { ...groupConvMap, [groupId]: convId }
+    setGroupConvMap(next)
+    try { localStorage.setItem('group_conv_map', JSON.stringify(next)) } catch {}
+  }
+
+  // 加载指定群组的历史消息
+  const loadGroupMessages = async (groupId) => {
+    const savedConvId = groupConvMap[groupId]
+    if (!savedConvId) { setMessages([]); return }
+    try {
+      const data = await api.getConversation(savedConvId)
+      if (!data?.messages) { setMessages([]); return }
+      setMessages(data.messages.map(m => ({
         id: m.id,
         role: m.role === 'user' ? 'user' : 'agent',
         text: m.text,
-      }))
-      setMessages(loaded)
-    }).catch(() => {})
-  }, [convId])
+      })))
+    } catch {
+      setMessages([])
+    }
+  }
 
   const loadGroups = async () => {
     try {
@@ -205,6 +244,7 @@ export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
       if (list.length > 0 && !selectedGroup) {
         const full = await api.getGroup(list[0].id)
         setSelectedGroup(full)
+        await loadGroupMessages(list[0].id)
       }
     } catch (e) {
       console.error(e)
@@ -215,7 +255,7 @@ export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
     try {
       const full = await api.getGroup(gId)
       setSelectedGroup(full)
-      setMessages([])
+      await loadGroupMessages(gId)
     } catch (e) {
       alert(e.message)
     }
@@ -225,37 +265,41 @@ export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
     if (!input.trim() || loading) return
     if (!selectedGroup) { alert('请先选择或创建一个群组'); return }
 
+    const currentGroupId = selectedGroup.id
+    const activeConvId = groupConvMap[currentGroupId] || null
+
     const userMsg = { role: 'user', text: input.trim(), id: Date.now() }
     setMessages(prev => [...prev, userMsg])
     const task = input.trim()
     setInput('')
     setLoading(true)
 
-    // 模拟正在工作的 agent 动画
+    // 显示正在工作的 agent 动画
     const agentNames = selectedGroup.agents
       .filter(a => a.enabled)
       .map(a => a.name)
     setActiveAgents(agentNames)
 
     try {
-      const result = await api.groupChat(selectedGroup.id, task, {}, convId)
+      const result = await api.groupChat(selectedGroup.id, task, {}, activeConvId)
       const agentMsg = { role: 'agent', id: Date.now() + 1, groupResult: result }
       setMessages(prev => [...prev, agentMsg])
 
-      // 保存到对话
-      let activeConvId = convId
-      if (!activeConvId) {
+      // 保存到对话（每个群组独立的会话）
+      let newConvId = activeConvId
+      if (!newConvId) {
         try {
           const conv = await api.createConversation()
-          activeConvId = conv.id
+          newConvId = conv.id
+          saveGroupConv(currentGroupId, conv.id)
           onNewConv?.(conv)
         } catch {
-          activeConvId = null
+          newConvId = null
         }
       }
-      if (activeConvId) {
-        await api.appendMessage(activeConvId, 'user', task).catch(() => {})
-        await api.appendMessage(activeConvId, 'agent', result.final_answer || '').catch(() => {})
+      if (newConvId) {
+        await api.appendMessage(newConvId, 'user', task).catch(() => {})
+        await api.appendMessage(newConvId, 'agent', result.final_answer || '').catch(() => {})
         onConvUpdate?.()
       }
     } catch (e) {
@@ -459,7 +503,7 @@ export default function GroupChatPanel({ convId, onConvUpdate, onNewConv }) {
               {msg.role === 'error' ? (
                 <div style={styles.errorMsg}>{msg.text}</div>
               ) : (
-                <GroupMessage msg={msg} />
+                <GroupMessage msg={msg} groupName={msg.role !== 'user' ? selectedGroup?.name : undefined} />
               )}
             </div>
           ))}
@@ -642,6 +686,14 @@ const styles = {
   },
   // Group reply
   groupReply: { display: 'flex', flexDirection: 'column', gap: 8 },
+  groupBadgeRow: { display: 'flex', alignItems: 'center' },
+  groupBadge: {
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    fontSize: 11, fontWeight: 600, padding: '2px 10px',
+    borderRadius: 10, border: '1px solid #ff980055',
+    background: '#ff980018', color: '#ff9800',
+    letterSpacing: 0.3,
+  },
   agentTurns: { display: 'flex', flexDirection: 'column', gap: 6 },
   turnWrapper: {
     border: '1px solid var(--border)', borderRadius: 10,

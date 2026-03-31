@@ -87,6 +87,104 @@ function CodeBlock({ node, inline, className, children, ...props }) {
 
 const MD_COMPONENTS = { code: CodeBlock }
 
+// ─── 模式标签配置 ─────────────────────────────────────────────────────────────
+const MODE_META = {
+  auto:  { icon: '⚡', label: 'Auto',  color: '#6c63ff', bg: '#6c63ff18' },
+  plan:  { icon: '📋', label: 'Plan',  color: '#2196f3', bg: '#2196f318' },
+  ask:   { icon: '🤖', label: 'Ask',   color: '#4caf50', bg: '#4caf5018' },
+  group: { icon: '🤝', label: '多 Agent', color: '#ff9800', bg: '#ff980018' },
+}
+
+// ─── Auto 模式步骤折叠区 ────────────────────────────────────────────────────────
+function AutoSteps({ steps }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!steps || steps.length === 0) return null
+  return (
+    <div style={autoStepStyles.wrapper}>
+      <button style={autoStepStyles.toggle} onClick={() => setExpanded(v => !v)}>
+        <span style={autoStepStyles.toggleIcon}>{expanded ? '▾' : '▸'}</span>
+        {expanded ? '收起' : `查看执行详情（${steps.length} 个步骤）`}
+      </button>
+      {expanded && (
+        <div style={autoStepStyles.list}>
+          {steps.map((s, i) => (
+            <div key={i} style={autoStepStyles.step}>
+              <div style={autoStepStyles.stepTitle}>
+                <span style={autoStepStyles.stepIdx}>{i + 1}</span>
+                {s.title}
+              </div>
+              <div className="mdText" style={autoStepStyles.stepOutput}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{s.output}</ReactMarkdown>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const autoStepStyles = {
+  wrapper: {
+    marginTop: 8,
+    borderTop: '1px solid var(--border)',
+    paddingTop: 6,
+  },
+  toggle: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--text-dim)',
+    cursor: 'pointer',
+    fontSize: 12,
+    padding: '2px 0',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+  },
+  toggleIcon: { fontSize: 12, lineHeight: 1 },
+  list: {
+    marginTop: 8,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+  },
+  step: {
+    border: '1px solid var(--border)',
+    borderRadius: 7,
+    overflow: 'hidden',
+  },
+  stepTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '6px 10px',
+    background: 'var(--surface2)',
+    fontSize: 12,
+    fontWeight: 600,
+    color: 'var(--text)',
+    borderBottom: '1px solid var(--border)',
+  },
+  stepIdx: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 18,
+    height: 18,
+    borderRadius: '50%',
+    background: 'var(--accent)',
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  stepOutput: {
+    padding: '8px 12px',
+    fontSize: 12,
+    lineHeight: 1.6,
+    color: 'var(--text)',
+  },
+}
+
 // ─── 消息类型 ─────────────────────────────────────────────────────────────────
 function Message({ msg, onDelete, onCopy }) {
   const [hovered, setHovered] = useState(false)
@@ -95,6 +193,7 @@ function Message({ msg, onDelete, onCopy }) {
   const isInfo = msg.role === 'info'
   const canAct = isUser || msg.role === 'agent' || msg.role === 'assistant'
   const writtenFiles = (!isUser && !isError && !isInfo) ? extractWrittenFiles(msg.text || '') : []
+  const meta = MODE_META[msg.mode] || null
 
   return (
     <div
@@ -102,7 +201,7 @@ function Message({ msg, onDelete, onCopy }) {
         ...styles.msg,
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         background: isUser ? 'var(--accent-dim)' : isError ? 'var(--error-bg)' : 'var(--surface2)',
-        borderColor: isUser ? 'var(--accent)' : isError ? 'var(--red)' : 'var(--border)',
+        borderColor: isUser ? 'var(--accent)' : isError ? 'var(--red)' : meta ? meta.color + '55' : 'var(--border)',
         color: isError ? 'var(--red)' : isInfo ? 'var(--text-dim)' : 'var(--text)',
         maxWidth: isUser ? '70%' : '100%',
         position: 'relative',
@@ -111,8 +210,18 @@ function Message({ msg, onDelete, onCopy }) {
       onMouseLeave={() => setHovered(false)}
     >
       {!isUser && (
-        <div style={styles.msgRole}>
-          {isError ? '⚠ 错误' : isInfo ? 'ℹ 提示' : '🤖 Agent'}
+        <div style={styles.msgRoleRow}>
+          {isError ? (
+            <span style={{ ...styles.modeBadge, background: '#ef535018', color: '#ef5350', borderColor: '#ef535044' }}>⚠ 错误</span>
+          ) : isInfo ? (
+            <span style={{ ...styles.modeBadge, background: 'var(--surface)', color: 'var(--text-dim)', borderColor: 'var(--border)' }}>ℹ 提示</span>
+          ) : meta ? (
+            <span style={{ ...styles.modeBadge, background: meta.bg, color: meta.color, borderColor: meta.color + '44' }}>
+              {meta.icon} {meta.label}{msg.groupName ? ` · ${msg.groupName}` : ''}
+            </span>
+          ) : (
+            <span style={{ ...styles.modeBadge, background: 'var(--surface)', color: 'var(--text-dim)', borderColor: 'var(--border)' }}>🤖 Agent</span>
+          )}
         </div>
       )}
       {isUser || isInfo || isError ? (
@@ -122,6 +231,7 @@ function Message({ msg, onDelete, onCopy }) {
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{msg.text}</ReactMarkdown>
         </div>
       )}
+      {msg.mode === 'auto' && <AutoSteps steps={msg.steps} />}
       {writtenFiles.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
           {writtenFiles.map((p, i) => <DownloadButton key={i} path={p} />)}
@@ -150,6 +260,109 @@ function Message({ msg, onDelete, onCopy }) {
   )
 }
 
+// ─── Ask 提示词编辑弹窗 ───────────────────────────────────────────────────────
+const DEFAULT_PROMPT_HINT = `你是一个智能助手。
+（系统会在你设定的提示词后，自动追加 Skills 列表与规则。若留空则使用默认提示词。）`
+
+function AskPromptModal({ value, onChange, onClose }) {
+  const [draft, setDraft] = useState(value)
+  return (
+    <div style={pmStyles.overlay} onClick={onClose}>
+      <div style={pmStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={pmStyles.header}>
+          <span style={pmStyles.title}>🤖 Ask 模式 · 自定义系统提示词</span>
+          <button style={pmStyles.closeBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={pmStyles.body}>
+          <p style={pmStyles.hint}>
+            设置后将<strong>前置</strong>于默认提示词发送给模型。留空则使用默认。
+          </p>
+          <textarea
+            style={pmStyles.textarea}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            placeholder={DEFAULT_PROMPT_HINT}
+            rows={10}
+            autoFocus
+          />
+          <div style={pmStyles.defaultBox}>
+            <div style={pmStyles.defaultLabel}>默认提示词模板（参考）</div>
+            <pre style={pmStyles.defaultPre}>{DEFAULT_PROMPT_HINT}</pre>
+          </div>
+        </div>
+        <div style={pmStyles.footer}>
+          <button style={pmStyles.clearBtn} onClick={() => setDraft('')}>清空（用默认）</button>
+          <button style={pmStyles.cancelBtn} onClick={onClose}>取消</button>
+          <button style={pmStyles.saveBtn} onClick={() => { onChange(draft); onClose() }}>保存</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const pmStyles = {
+  overlay: {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000,
+  },
+  modal: {
+    background: 'var(--bg)', borderRadius: 12, width: 580, maxWidth: '95vw',
+    border: '1px solid var(--border)', display: 'flex', flexDirection: 'column',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+  },
+  header: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 20px', borderBottom: '1px solid var(--border)',
+  },
+  title: { fontSize: 14, fontWeight: 600, color: 'var(--text)' },
+  closeBtn: {
+    background: 'none', border: 'none', color: 'var(--text-dim)',
+    cursor: 'pointer', fontSize: 16, lineHeight: 1,
+  },
+  body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 },
+  hint: { margin: 0, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.6 },
+  textarea: {
+    width: '100%', padding: '10px 12px', borderRadius: 7,
+    border: '1px solid var(--border)', background: 'var(--surface)',
+    color: 'var(--text)', fontSize: 13, resize: 'vertical',
+    outline: 'none', fontFamily: 'var(--font)', lineHeight: 1.6,
+    boxSizing: 'border-box',
+  },
+  defaultBox: {
+    background: 'var(--surface2)', borderRadius: 7,
+    border: '1px solid var(--border)', overflow: 'hidden',
+  },
+  defaultLabel: {
+    padding: '5px 12px', fontSize: 11, fontWeight: 600,
+    color: 'var(--text-dim)', borderBottom: '1px solid var(--border)',
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  defaultPre: {
+    margin: 0, padding: '8px 12px', fontSize: 11,
+    color: 'var(--text-dim)', fontFamily: 'var(--font)',
+    whiteSpace: 'pre-wrap', lineHeight: 1.5,
+  },
+  footer: {
+    display: 'flex', gap: 8, padding: '12px 20px',
+    borderTop: '1px solid var(--border)', justifyContent: 'flex-end',
+  },
+  clearBtn: {
+    background: 'transparent', border: '1px solid var(--border)',
+    color: 'var(--text-dim)', borderRadius: 6, padding: '6px 12px',
+    fontSize: 12, cursor: 'pointer', marginRight: 'auto',
+  },
+  cancelBtn: {
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    color: 'var(--text)', borderRadius: 6, padding: '6px 14px',
+    fontSize: 13, cursor: 'pointer',
+  },
+  saveBtn: {
+    background: 'var(--accent)', border: 'none',
+    color: '#fff', borderRadius: 6, padding: '6px 16px',
+    fontSize: 13, cursor: 'pointer', fontWeight: 500,
+  },
+}
+
 // ─── 主应用 ───────────────────────────────────────────────────────────────────
 export default function App() {
   const [skills, setSkills] = useState([])
@@ -161,6 +374,8 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState('auto')   // 'auto' | 'plan' | 'ask'
   const [tab, setTab] = useState('chat')     // 'chat' | 'plans' | 'memory' | 'skills'
+  const [askSystemPrompt, setAskSystemPrompt] = useState('')
+  const [showAskPromptEditor, setShowAskPromptEditor] = useState(false)
   const tabRef = useRef('chat')
   // keep tabRef in sync so callbacks don't get stale closures
   const [skillsLoading, setSkillsLoading] = useState(true)
@@ -398,26 +613,38 @@ export default function App() {
         const res = await api.auto(fullTask, options, convId)
         const lastResult = res.results[res.results.length - 1]
         if (lastResult) {
-          const agentLocalId = push('agent', lastResult.message, { usage: res.usage })
-          saveMsg('agent', lastResult.message, agentLocalId)
+          // 收集步骤详情：最后一步作为主要结果，其余步骤折叠
+          const allSteps = []
+          if (res.plans && res.plans.length > 0) {
+            for (const plan of res.plans) {
+              for (const s of (plan.steps || [])) {
+                if (s.output) allSteps.push({ title: s.title, output: s.output })
+              }
+            }
+          }
+          const finalOutput = allSteps.length > 0
+            ? allSteps[allSteps.length - 1].output
+            : lastResult.message
+          const steps = allSteps.slice(0, -1)  // 除最后一步外，其余折叠
+          const agentLocalId = push('agent', finalOutput, { usage: res.usage, mode: 'auto', steps })
+          saveMsg('agent', finalOutput, agentLocalId)
           if (lastResult.need_input) setPending(lastResult.need_input)
         }
         await refresh()
-        setTab('plans')
 
       } else if (mode === 'plan') {
         push('info', '正在生成候选计划…')
         const planList = await api.createPlan(fullTask, options)
         const msg = `已生成 ${planList.length} 个计划，可在「计划」标签查看并执行。`
-        const agentLocalId = push('agent', msg)
+        const agentLocalId = push('agent', msg, { mode: 'plan' })
         saveMsg('agent', msg, agentLocalId)
         await refresh()
         setTab('plans')
 
       } else if (mode === 'ask') {
         push('info', '正在直接执行…')
-        const res = await api.ask(fullTask, options, convId)
-        const agentLocalId = push('agent', res.result, { usage: res.usage })
+        const res = await api.ask(fullTask, options, convId, askSystemPrompt || undefined)
+        const agentLocalId = push('agent', res.result, { usage: res.usage, mode: 'ask' })
         saveMsg('agent', res.result, agentLocalId)
       }
     } catch (e) {
@@ -632,7 +859,6 @@ export default function App() {
           <div style={tab === 'group' ? { ...styles.content, padding: 0, overflow: 'hidden' } : styles.content}>
             {tab === 'group' ? (
               <GroupChatPanel
-                convId={currentConvId}
                 onConvUpdate={loadConversations}
                 onNewConv={(conv) => {
                   setCurrentConvId(conv.id)
@@ -712,6 +938,19 @@ export default function App() {
                   {m.label}
                 </button>
               ))}
+              {mode === 'ask' && (
+                <button
+                  title={askSystemPrompt ? '已设置自定义提示词（点击编辑）' : '查看 / 编辑 Ask 模式提示词'}
+                  style={{
+                    ...styles.modeBtn,
+                    borderColor: askSystemPrompt ? 'var(--accent)' : 'var(--border)',
+                    color: askSystemPrompt ? 'var(--accent)' : 'var(--text-dim)',
+                  }}
+                  onClick={() => setShowAskPromptEditor(true)}
+                >
+                  {askSystemPrompt ? '📝 提示词 ●' : '📝 提示词'}
+                </button>
+              )}
               <div style={styles.providerRow}>
                 {[
                   { id: 'openai', label: 'OpenAI' },
@@ -796,6 +1035,13 @@ export default function App() {
         </main>
       </div>
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showAskPromptEditor && (
+        <AskPromptModal
+          value={askSystemPrompt}
+          onChange={setAskSystemPrompt}
+          onClose={() => setShowAskPromptEditor(false)}
+        />
+      )}
     </div>
   )
 }
@@ -959,12 +1205,22 @@ const styles = {
     borderRadius: 8,
     padding: '8px 12px',
   },
-  msgRole: {
+  msgRoleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  modeBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
     fontSize: 11,
-    color: 'var(--text-dim)',
     fontWeight: 600,
-    marginBottom: 4,
-    textTransform: 'uppercase',
+    padding: '2px 8px',
+    borderRadius: 8,
+    border: '1px solid',
+    letterSpacing: 0.3,
   },
   msgText: {
     fontFamily: 'var(--font)',

@@ -103,6 +103,7 @@ class TaskRequest(BaseModel):
     task: str
     options: Optional[RunOptionsModel] = None
     conv_id: Optional[str] = None
+    system_prompt: Optional[str] = None
 
 
 class AutoRequest(BaseModel):
@@ -460,7 +461,7 @@ def ask(req: TaskRequest, _u: dict = Depends(get_current_user)):
     reset_usage()
     set_current_user(_u["id"])
     try:
-        text = run_direct_agent(req.task, eligible, options=opts, history=history)
+        text = run_direct_agent(req.task, eligible, options=opts, history=history, extra_system_prompt=req.system_prompt)
     finally:
         set_current_user(None)
     usage = get_usage()

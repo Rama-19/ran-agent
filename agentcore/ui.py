@@ -56,10 +56,12 @@ def run_direct_agent(
     eligible_skills: List[Dict],
     options: Optional[RunOptions] = None,
     history: Optional[List[Dict]] = None,
+    extra_system_prompt: Optional[str] = None,
 ) -> str:
     options = normalize_options(options)
     skills_xml = format_skills_for_prompt(eligible_skills)
-    system_prompt = build_main_system_prompt(skills_xml)
+    base_prompt = build_main_system_prompt(skills_xml)
+    system_prompt = (extra_system_prompt.strip() + "\n\n" + base_prompt) if extra_system_prompt and extra_system_prompt.strip() else base_prompt
     tools = get_response_tools(options, include_execute_skill=True)
 
     return run_responses_agent(
